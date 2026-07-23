@@ -127,7 +127,12 @@ func shouldRecord(
 	result adaptor.DoResponseResult,
 	relayErr adaptor.Error,
 ) bool {
-	if relayErr != nil ||
+	if relayErr != nil {
+		return false
+	}
+
+	// ollama cloud 模型（带有 :cloud 后缀）不参与缓存命中 token 判断
+	if !strings.HasSuffix(meta.OriginModel, ":cloud") &&
 		(result.Usage.CachedTokens <= 0 && result.Usage.CacheCreationTokens <= 0) {
 		return false
 	}

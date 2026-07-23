@@ -497,6 +497,67 @@ func TestDoResponseRecordsWhenOnlyCacheCreationTokensExist(t *testing.T) {
 	)
 }
 
+func TestDoResponseRecordsOllamaCloudModelWithoutCachedTokens(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		"/v1/chat/completions",
+		nil,
+	)
+
+	store := &recordingStore{}
+	requestMeta := &meta.Meta{
+		Mode:        mode.ChatCompletions,
+		OriginModel: "qwen3:cloud",
+		ModelConfig: model.ModelConfig{
+			Model: "qwen3:cloud",
+			Plugin: map[string]map[string]any{
+				PluginName: {"enable": true, "enable_generic_follow": true},
+			},
+		},
+		Group:   model.GroupCache{ID: "group-1"},
+		Token:   model.TokenCache{ID: 7},
+		Channel: meta.ChannelMeta{ID: 9},
+	}
+
+	_, relayErr := (&Plugin{}).DoResponse(
+		requestMeta,
+		store,
+		c,
+		&http.Response{StatusCode: http.StatusOK},
+		doResponseFunc{
+			fn: func(_ *meta.Meta, _ adaptor.Store, c *gin.Context, _ *http.Response) (adaptor.DoResponseResult, adaptor.Error) {
+				c.Status(http.StatusOK)
+				_, _ = c.Writer.Write([]byte(`{"id":"chatcmpl-1"}`))
+
+				// ollama cloud 模型不返回缓存命中 token，但仍应记录 cachefollow 映射
+				return adaptor.DoResponseResult{
+					Usage: model.Usage{},
+				}, nil
+			},
+		},
+	)
+
+	require.Nil(t, relayErr)
+	require.Len(t, store.savedIfNotExist, 1)
+	require.Len(t, store.saved, 1)
+	assert.Equal(
+		t,
+		model.CacheFollowStoreID("qwen3:cloud", model.CacheKeyTypeStable),
+		store.savedIfNotExist[0].ID,
+	)
+	assert.Equal(
+		t,
+		model.CacheFollowStoreID("qwen3:cloud", model.CacheKeyTypeRecent),
+		store.saved[0].ID,
+	)
+}
+
 func TestDoResponseRecordsPromptAndUserMappingsTogetherByDefault(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
