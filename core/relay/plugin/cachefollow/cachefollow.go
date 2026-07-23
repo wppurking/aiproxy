@@ -131,8 +131,11 @@ func shouldRecord(
 		return false
 	}
 
-	// ollama cloud 模型（带有 :cloud 后缀）不参与缓存命中 token 判断
+	// ollama cloud 模型（带有 :cloud 后缀）不参与缓存命中 token 判断。
+	// 注意：需同时检查 mapping 后的 ActualModel，否则通过 ModelMapping
+	// 把普通模型映射成 :cloud 变体时会漏判（真正决定走云端的是上游模型名）。
 	if !strings.HasSuffix(meta.OriginModel, ":cloud") &&
+		!strings.HasSuffix(meta.ActualModel, ":cloud") &&
 		(result.Usage.CachedTokens <= 0 && result.Usage.CacheCreationTokens <= 0) {
 		return false
 	}
