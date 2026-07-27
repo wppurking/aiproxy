@@ -22,8 +22,8 @@ type ExtraContent struct {
 
 type ToolCall struct {
 	Index        int           `json:"index"`
-	ID           string        `json:"id"`
-	Type         string        `json:"type"`
+	ID           string        `json:"id,omitempty"`
+	Type         string        `json:"type,omitempty"`
 	Function     Function      `json:"function"`
 	ExtraContent *ExtraContent `json:"extra_content,omitempty"`
 }

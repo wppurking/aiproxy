@@ -1017,6 +1017,51 @@ func TestConvertResponsesToChatCompletionResponse(t *testing.T) {
 			expectedStatus: http.StatusOK,
 		},
 		{
+			name: "multiple function calls share one choice",
+			responsesResp: relaymodel.Response{
+				ID:        "resp_tools",
+				Model:     "gpt-5-mini",
+				Status:    relaymodel.ResponseStatusCompleted,
+				CreatedAt: 1781355958,
+				Output: []relaymodel.OutputItem{
+					{
+						ID:        "fc_logs",
+						Type:      relaymodel.InputItemTypeFunctionCall,
+						CallID:    "call_logs",
+						Name:      "command",
+						Arguments: `{"command":"kubectl logs ..."}`,
+					},
+					{
+						ID:        "fc_statefulset",
+						Type:      relaymodel.InputItemTypeFunctionCall,
+						CallID:    "call_statefulset",
+						Name:      "command",
+						Arguments: `{"command":"kubectl get statefulset ..."}`,
+					},
+				},
+				Usage: &relaymodel.ResponseUsage{
+					InputTokens:  12,
+					OutputTokens: 6,
+					TotalTokens:  18,
+				},
+			},
+			checkFunc: func(t *testing.T, chatResp relaymodel.TextResponse) {
+				t.Helper()
+				require.Len(t, chatResp.Choices, 1)
+
+				choice := chatResp.Choices[0]
+				assert.Equal(t, relaymodel.FinishReasonToolCalls, choice.FinishReason)
+				require.Len(t, choice.Message.ToolCalls, 2)
+				assert.Equal(t, 0, choice.Message.ToolCalls[0].Index)
+				assert.Equal(t, `{"command":"kubectl logs ..."}`,
+					choice.Message.ToolCalls[0].Function.Arguments)
+				assert.Equal(t, 1, choice.Message.ToolCalls[1].Index)
+				assert.Equal(t, `{"command":"kubectl get statefulset ..."}`,
+					choice.Message.ToolCalls[1].Function.Arguments)
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
 			name: "incomplete function call keeps incomplete finish reason",
 			responsesResp: relaymodel.Response{
 				ID:        "resp_tool_incomplete",
@@ -1581,6 +1626,89 @@ func TestConvertResponsesToChatCompletionStreamResponseUsesToolCallsFinishReason
 	)
 	assert.Equal(t, relaymodel.FinishReasonToolCalls, chunks[3].Choices[0].FinishReason)
 	assert.Equal(t, 1, strings.Count(w.Body.String(), "data: [DONE]"))
+}
+
+func TestConvertResponsesToChatCompletionStreamResponseKeepsParallelToolCallsSeparate(
+	t *testing.T,
+) {
+	gin.SetMode(gin.TestMode)
+
+	stream := strings.Join([]string{
+		`event: response.created`,
+		`data: {"type":"response.created","response":{"id":"resp_tools","object":"response","created_at":1781355623,"status":"in_progress","model":"gpt-5-mini","output":[],"parallel_tool_calls":true,"store":false}}`,
+		"",
+		`event: response.output_item.added`,
+		`data: {"type":"response.output_item.added","item":{"id":"fc_logs","type":"function_call","call_id":"call_logs","name":"command","arguments":"","status":"in_progress"},"output_index":0,"sequence_number":1}`,
+		"",
+		`event: response.output_item.added`,
+		`data: {"type":"response.output_item.added","item":{"id":"fc_statefulset","type":"function_call","call_id":"call_statefulset","name":"command","arguments":"","status":"in_progress"},"output_index":1,"sequence_number":2}`,
+		"",
+		`event: response.function_call_arguments.delta`,
+		`data: {"type":"response.function_call_arguments.delta","item_id":"fc_statefulset","output_index":1,"delta":"{\"command\":\"kubectl get statefulset ...\"}","sequence_number":3}`,
+		"",
+		`event: response.function_call_arguments.delta`,
+		`data: {"type":"response.function_call_arguments.delta","item_id":"fc_logs","output_index":0,"delta":"{\"command\":\"kubectl logs ...\"}","sequence_number":4}`,
+		"",
+		`event: response.output_item.done`,
+		`data: {"type":"response.output_item.done","item":{"id":"fc_logs","type":"function_call","call_id":"call_logs","name":"command","arguments":"{\"command\":\"kubectl logs ...\"}","status":"completed"},"output_index":0,"sequence_number":5}`,
+		"",
+		`event: response.output_item.done`,
+		`data: {"type":"response.output_item.done","item":{"id":"fc_statefulset","type":"function_call","call_id":"call_statefulset","name":"command","arguments":"{\"command\":\"kubectl get statefulset ...\"}","status":"completed"},"output_index":1,"sequence_number":6}`,
+		"",
+		`event: response.completed`,
+		`data: {"type":"response.completed","response":{"id":"resp_tools","object":"response","created_at":1781355623,"status":"completed","model":"gpt-5-mini","output":[],"parallel_tool_calls":true,"store":false,"usage":{"input_tokens":12,"output_tokens":6,"total_tokens":18}},"sequence_number":7}`,
+		"",
+	}, "\n")
+
+	httpResp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       &mockReadCloser{Reader: bytes.NewReader([]byte(stream))},
+		Header:     make(http.Header),
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		"/v1/chat/completions",
+		nil,
+	)
+
+	_, err := openai.ConvertResponsesToChatCompletionStreamResponse(
+		&meta.Meta{ActualModel: "gpt-5-mini"},
+		c,
+		httpResp,
+	)
+	require.Nil(t, err)
+
+	chunks := collectChatCompletionStreamChunks(t, w.Body.String())
+	require.Len(t, chunks, 6)
+
+	for _, chunk := range chunks {
+		assert.Equal(t, int64(1781355623), chunk.Created)
+	}
+
+	assert.NotContains(t, w.Body.String(), `"id":""`)
+	assert.NotContains(t, w.Body.String(), `"type":""`)
+
+	argumentsByIndex := make(map[int]string)
+
+	callIDsByIndex := make(map[int]string)
+	for _, chunk := range chunks {
+		for _, toolCall := range chunk.Choices[0].Delta.ToolCalls {
+			argumentsByIndex[toolCall.Index] += toolCall.Function.Arguments
+			if toolCall.ID != "" {
+				callIDsByIndex[toolCall.Index] = toolCall.ID
+			}
+		}
+	}
+
+	assert.Equal(t, "call_logs", callIDsByIndex[0])
+	assert.Equal(t, `{"command":"kubectl logs ..."}`, argumentsByIndex[0])
+	assert.Equal(t, "call_statefulset", callIDsByIndex[1])
+	assert.Equal(t, `{"command":"kubectl get statefulset ..."}`, argumentsByIndex[1])
+	assert.Equal(t, relaymodel.FinishReasonToolCalls, chunks[5].Choices[0].FinishReason)
 }
 
 func TestConvertResponsesToChatCompletionStreamResponseUsesOriginModelForEveryChunk(
