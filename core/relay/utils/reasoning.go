@@ -508,7 +508,7 @@ func doubaoReasoningEffort(reasoning relaymodel.NormalizedReasoning) string {
 		return "low"
 	case relaymodel.ReasoningEffortMedium:
 		return "medium"
-	case relaymodel.ReasoningEffortHigh, relaymodel.ReasoningEffortXHigh:
+	case relaymodel.ReasoningEffortHigh, relaymodel.ReasoningEffortXHigh, relaymodel.ReasoningEffortMax:
 		return "high"
 	default:
 		return ""
@@ -577,7 +577,7 @@ func ReasoningToOpenAIEffort(
 
 func ClaudeOutputEffort(reasoning relaymodel.NormalizedReasoning) string {
 	switch ReasoningToOpenAIEffort(reasoning) {
-	case relaymodel.ReasoningEffortXHigh:
+	case relaymodel.ReasoningEffortXHigh, relaymodel.ReasoningEffortMax:
 		return "max"
 	case relaymodel.ReasoningEffortNone, relaymodel.ReasoningEffortMinimal:
 		return "low"
@@ -621,7 +621,7 @@ func ReasoningToBudget(reasoning relaymodel.NormalizedReasoning) int {
 		return 2048
 	case relaymodel.ReasoningEffortHigh:
 		return 16384
-	case relaymodel.ReasoningEffortXHigh:
+	case relaymodel.ReasoningEffortXHigh, relaymodel.ReasoningEffortMax:
 		return 32768
 	default:
 		return 8192
@@ -676,7 +676,7 @@ func GeminiThinkingLevelForModel(
 
 	if strings.Contains(modelName, "pro") {
 		switch effort {
-		case relaymodel.ReasoningEffortHigh, relaymodel.ReasoningEffortXHigh:
+		case relaymodel.ReasoningEffortHigh, relaymodel.ReasoningEffortXHigh, relaymodel.ReasoningEffortMax:
 			return "high"
 		default:
 			return "low"
@@ -690,7 +690,7 @@ func GeminiThinkingLevelForModel(
 		return "low"
 	case relaymodel.ReasoningEffortMedium:
 		return "medium"
-	case relaymodel.ReasoningEffortHigh, relaymodel.ReasoningEffortXHigh:
+	case relaymodel.ReasoningEffortHigh, relaymodel.ReasoningEffortXHigh, relaymodel.ReasoningEffortMax:
 		return "high"
 	default:
 		return "minimal"

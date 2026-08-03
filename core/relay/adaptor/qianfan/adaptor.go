@@ -272,7 +272,7 @@ func patchReasoningRequest(meta *meta.Meta, openAIReq *relaymodel.GeneralOpenAIR
 
 func qianfanReasoningEffort(reasoning relaymodel.NormalizedReasoning) string {
 	switch utils.ReasoningToOpenAIEffort(reasoning) {
-	case relaymodel.ReasoningEffortXHigh:
+	case relaymodel.ReasoningEffortXHigh, relaymodel.ReasoningEffortMax:
 		return "max"
 	default:
 		return "high"

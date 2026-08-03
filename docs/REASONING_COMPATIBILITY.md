@@ -56,12 +56,13 @@ The normalized effort enum is:
 - `medium`
 - `high`
 - `xhigh`
+- `max`
 
 The parser also accepts several aliases:
 
 - `off` / `disabled` -> `none`
 - `med` -> `medium`
-- `max` / `maximum` -> `xhigh`
+- `max` / `maximum` -> `max`
 
 ### 2.2 Default effort <-> budget mapping
 
@@ -75,6 +76,7 @@ When an upstream only supports token budgets instead of discrete labels such as 
 | `medium` | `8192` |
 | `high` | `16384` |
 | `xhigh` | `32768` |
+| `max` | `32768` |
 
 When converting budget back into effort, the proxy uses these ranges:
 
@@ -97,7 +99,7 @@ The compatibility layer currently only parses:
 
 ```json
 {
-  "reasoning_effort": "none|minimal|low|medium|high|xhigh"
+  "reasoning_effort": "none|minimal|low|medium|high|xhigh|max"
 }
 ```
 
@@ -113,7 +115,7 @@ When the proxy needs to build an OpenAI Responses request body, reasoning is wri
 ```json
 {
   "reasoning": {
-    "effort": "none|minimal|low|medium|high|xhigh"
+    "effort": "none|minimal|low|medium|high|xhigh|max"
   }
 }
 ```
@@ -207,6 +209,7 @@ Effort mapping:
 | `medium` | `reasoning_effort: "medium"` |
 | `high` | `reasoning_effort: "high"` |
 | `xhigh` | `reasoning_effort: "xhigh"` |
+| `max` | `reasoning_effort: "max"` |
 
 ### 4.2 OpenAI Responses output
 
@@ -236,6 +239,7 @@ Effort mapping:
 | `medium` | `reasoning.effort: "medium"` |
 | `high` | `reasoning.effort: "high"` |
 | `xhigh` | `reasoning.effort: "xhigh"` |
+| `max` | `reasoning.effort: "max"` |
 
 ### 4.3 Gemini output
 
@@ -266,13 +270,13 @@ If the model name matches one of these families, the proxy prefers `thinkingLeve
 Mapping rules:
 
 - Pro models:
-  - `high` / `xhigh` -> `high`
+  - `high` / `xhigh` / `max` -> `high`
   - all other enabled states -> `low`
 - non-Pro models:
   - `none` -> `minimal`
   - `low` -> `low`
   - `medium` -> `medium`
-  - `high` / `xhigh` -> `high`
+  - `high` / `xhigh` / `max` -> `high`
   - everything else -> `minimal`
 
 Disable behavior:
@@ -290,6 +294,7 @@ Exact level mapping:
 | `medium` | `low` | `medium` |
 | `high` | `high` | `high` |
 | `xhigh` | `high` | `high` |
+| `max` | `high` | `high` |
 
 #### B. Gemini 2.5 family: use `thinkingBudget`
 
@@ -328,6 +333,7 @@ Exact budget mapping after Gemini model-range clamping:
 | `medium` | `8192` | `8192` | `8192` |
 | `high` | `16384` | `16384` | `16384` |
 | `xhigh` | `32768` | `24576` | `24576` |
+| `max` | `32768` | `24576` | `24576` |
 
 `includeThoughts` is `true` for enabled rows and `false` for the `none` row.
 
@@ -361,7 +367,7 @@ The proxy may emit two shapes.
 
 Mapping details:
 
-- `xhigh` -> Claude `output_config.effort=max`
+- `xhigh` / `max` -> Claude `output_config.effort=max`
 - `high` -> `high`
 - `medium` -> `medium`
 - `low`, `minimal`, and `none` map to `low` when adaptive output is used
@@ -376,6 +382,7 @@ Exact output mapping:
 | `medium` | `thinking.type=enabled`, `budget_tokens=8192` | `thinking.type=adaptive`, `output_config.effort=medium` |
 | `high` | `thinking.type=enabled`, `budget_tokens=16384` | `thinking.type=adaptive`, `output_config.effort=high` |
 | `xhigh` | `thinking.type=enabled`, `budget_tokens=32768` | `thinking.type=adaptive`, `output_config.effort=max` |
+| `max` | `thinking.type=enabled`, `budget_tokens=32768` | `thinking.type=adaptive`, `output_config.effort=max` |
 
 Budget-mode constraints:
 
@@ -419,6 +426,7 @@ Exact mapping:
 | `medium` | `enable_thinking=true`, `thinking_budget=8192` | `enable_thinking=true`; no `thinking_budget` |
 | `high` | `enable_thinking=true`, `thinking_budget=16384` | `enable_thinking=true`; no `thinking_budget` |
 | `xhigh` | `enable_thinking=true`, `thinking_budget=16384` | `enable_thinking=true`; no `thinking_budget` |
+| `max` | `enable_thinking=true`, `thinking_budget=16384` | `enable_thinking=true`; no `thinking_budget` |
 
 Models currently considered to support `thinking_budget` include:
 
@@ -466,6 +474,7 @@ Exact mapping:
 | `medium` | `thinking.type=enabled` |
 | `high` | `thinking.type=enabled` |
 | `xhigh` | `thinking.type=enabled` |
+| `max` | `thinking.type=enabled` |
 
 ### 4.7 Qianfan output
 
@@ -505,6 +514,7 @@ Exact mapping by field family when the input does not already contain native `th
 | `medium` | `reasoning_effort=high` | `enable_thinking=true`; `thinking_budget=8192` when supported | `thinking.type=enabled`; `thinking_budget=8192` when supported | `thinking_budget=8192` |
 | `high` | `reasoning_effort=high` | `enable_thinking=true`; `thinking_budget=16384` when supported | `thinking.type=enabled`; `thinking_budget=16384` when supported | `thinking_budget=16384` |
 | `xhigh` | `reasoning_effort=max` | `enable_thinking=true`; `thinking_budget=16384` when supported | `thinking.type=enabled`; `thinking_budget=16384` when supported | `thinking_budget=16384` |
+| `max` | `reasoning_effort=max` | `enable_thinking=true`; `thinking_budget=16384` when supported | `thinking.type=enabled`; `thinking_budget=16384` when supported | `thinking_budget=16384` |
 
 For OpenAI Responses input, Qianfan also normalizes `reasoning.effort` into
 the same upstream Qianfan fields.
@@ -532,6 +542,7 @@ Exact mapping for toggle-capable Kimi models:
 | `medium` | `thinking.type=enabled` |
 | `high` | `thinking.type=enabled` |
 | `xhigh` | `thinking.type=enabled` |
+| `max` | `thinking.type=enabled` |
 
 For non-toggle Kimi models, the adaptor removes `reasoning_effort` and does not
 send `thinking`. Kimi output currently preserves only on/off semantics, not
@@ -584,6 +595,13 @@ Known GPT effort support used by the adaptor:
 | `gpt-5-pro*` | `high` | any unsupported value -> `high` |
 | `gpt-5*` | `minimal`, `low`, `medium`, `high` | `none` -> `minimal`; `xhigh` -> `high` |
 
+`max` is treated as a level above `xhigh` for known GPT families:
+
+| model match | `max` migrates to |
+| --- | --- |
+| `gpt-5.5*`, `gpt-5.4*`, `gpt-5.2*`, `gpt-5.4-pro*`, `gpt-5.2-pro*` | `xhigh` |
+| `gpt-5.1*`, `gpt-5*`, `gpt-5-pro*` | `high` |
+
 ## 5.2 Google Gemini
 
 Supported reasoning conversion modes:
@@ -606,6 +624,7 @@ Exact output depends on the target Gemini model family:
 | `medium` | `thinkingLevel=low` | `thinkingLevel=medium` | `thinkingBudget=8192`, `includeThoughts=true` | `thinkingBudget=8192`, `includeThoughts=true` | `thinkingBudget=8192`, `includeThoughts=true` |
 | `high` | `thinkingLevel=high` | `thinkingLevel=high` | `thinkingBudget=16384`, `includeThoughts=true` | `thinkingBudget=16384`, `includeThoughts=true` | `thinkingBudget=16384`, `includeThoughts=true` |
 | `xhigh` | `thinkingLevel=high` | `thinkingLevel=high` | `thinkingBudget=32768`, `includeThoughts=true` | `thinkingBudget=24576`, `includeThoughts=true` | `thinkingBudget=24576`, `includeThoughts=true` |
+| `max` | `thinkingLevel=high` | `thinkingLevel=high` | `thinkingBudget=32768`, `includeThoughts=true` | `thinkingBudget=24576`, `includeThoughts=true` | `thinkingBudget=24576`, `includeThoughts=true` |
 
 Notes:
 
@@ -637,6 +656,7 @@ Exact output by Claude capability:
 | `medium` | `thinking.type=enabled`, `budget_tokens=8192` | `thinking.type=adaptive`, `output_config.effort=medium` |
 | `high` | `thinking.type=enabled`, `budget_tokens=16384` | `thinking.type=adaptive`, `output_config.effort=high` |
 | `xhigh` | `thinking.type=enabled`, `budget_tokens=32768` | `thinking.type=adaptive`, `output_config.effort=max` |
+| `max` | `thinking.type=enabled`, `budget_tokens=32768` | `thinking.type=adaptive`, `output_config.effort=max` |
 
 Notes:
 
@@ -698,6 +718,7 @@ Ali exact effort mapping:
 | `medium` | `enable_thinking=true`; `thinking_budget=8192` | `enable_thinking=true`; no `thinking_budget` |
 | `high` | `enable_thinking=true`; `thinking_budget=16384` | `enable_thinking=true`; no `thinking_budget` |
 | `xhigh` | `enable_thinking=true`; `thinking_budget=16384` | `enable_thinking=true`; no `thinking_budget` |
+| `max` | `enable_thinking=true`; `thinking_budget=16384` | `enable_thinking=true`; no `thinking_budget` |
 
 Ali budget-capable model detection:
 
@@ -738,6 +759,7 @@ Exact effort mapping:
 | `medium` | `thinking.type=enabled` |
 | `high` | `thinking.type=enabled` |
 | `xhigh` | `thinking.type=enabled` |
+| `max` | `thinking.type=enabled` |
 
 Notes:
 
@@ -766,6 +788,7 @@ Exact effort mapping for the hooked Chat / Gemini paths:
 | `medium` | `thinking.type=enabled` |
 | `high` | `thinking.type=enabled` |
 | `xhigh` | `thinking.type=enabled` |
+| `max` | `thinking.type=enabled` |
 
 DeepSeek currently preserves only enabled / disabled for the hooked OpenAI Chat and Gemini paths.
 
@@ -791,6 +814,7 @@ Exact effort mapping for the hooked Chat / Gemini / Anthropic paths:
 | `medium` | `thinking.type=enabled` |
 | `high` | `thinking.type=enabled` |
 | `xhigh` | `thinking.type=enabled` |
+| `max` | `thinking.type=enabled` |
 
 Zhipu currently preserves only enabled / disabled for the hooked paths.
 
@@ -816,6 +840,7 @@ Exact effort mapping by field family when native `thinking` is not already prese
 | `medium` | `reasoning_effort=high` | `enable_thinking=true`; `thinking_budget=8192` when supported | `thinking.type=enabled`; `thinking_budget=8192` when supported | `thinking_budget=8192` |
 | `high` | `reasoning_effort=high` | `enable_thinking=true`; `thinking_budget=16384` when supported | `thinking.type=enabled`; `thinking_budget=16384` when supported | `thinking_budget=16384` |
 | `xhigh` | `reasoning_effort=max` | `enable_thinking=true`; `thinking_budget=16384` when supported | `thinking.type=enabled`; `thinking_budget=16384` when supported | `thinking_budget=16384` |
+| `max` | `reasoning_effort=max` | `enable_thinking=true`; `thinking_budget=16384` when supported | `thinking.type=enabled`; `thinking_budget=16384` when supported | `thinking_budget=16384` |
 
 Notes:
 
@@ -856,6 +881,7 @@ Exact effort mapping for toggle-capable Kimi models:
 | `medium` | `thinking.type=enabled`; `reasoning_effort` removed |
 | `high` | `thinking.type=enabled`; `reasoning_effort` removed |
 | `xhigh` | `thinking.type=enabled`; `reasoning_effort` removed |
+| `max` | `thinking.type=enabled`; `reasoning_effort` removed |
 
 For non-toggle Kimi models, such as dedicated thinking models, the adaptor removes `reasoning_effort` and omits `thinking`.
 It does not send `thinking.type=disabled` to a model that cannot be disabled.

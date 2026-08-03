@@ -423,6 +423,8 @@ func openAIReasoningEffortRank(effort relaymodel.ReasoningEffort) (int, bool) {
 		return 4, true
 	case relaymodel.ReasoningEffortXHigh:
 		return 5, true
+	case relaymodel.ReasoningEffortMax:
+		return 6, true
 	default:
 		return 0, false
 	}

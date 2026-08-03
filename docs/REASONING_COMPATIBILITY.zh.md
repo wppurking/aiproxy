@@ -55,12 +55,13 @@
 - `medium`
 - `high`
 - `xhigh`
+- `max`
 
 其中也兼容若干别名输入：
 
 - `off` / `disabled` -> `none`
 - `med` -> `medium`
-- `max` / `maximum` -> `xhigh`
+- `max` / `maximum` -> `max`
 
 ### 2.2 默认 effort <-> budget 映射
 
@@ -74,6 +75,7 @@
 | `medium` | `8192` |
 | `high` | `16384` |
 | `xhigh` | `32768` |
+| `max` | `32768` |
 
 反向把 budget 还原为 effort 时，使用下面的区间：
 
@@ -96,7 +98,7 @@
 
 ```json
 {
-  "reasoning_effort": "none|minimal|low|medium|high|xhigh"
+  "reasoning_effort": "none|minimal|low|medium|high|xhigh|max"
 }
 ```
 
@@ -112,7 +114,7 @@
 ```json
 {
   "reasoning": {
-    "effort": "none|minimal|low|medium|high|xhigh"
+    "effort": "none|minimal|low|medium|high|xhigh|max"
   }
 }
 ```
@@ -206,6 +208,7 @@ effort 映射：
 | `medium` | `reasoning_effort: "medium"` |
 | `high` | `reasoning_effort: "high"` |
 | `xhigh` | `reasoning_effort: "xhigh"` |
+| `max` | `reasoning_effort: "max"` |
 
 ### 4.2 写成 OpenAI Responses
 
@@ -235,6 +238,7 @@ effort 映射：
 | `medium` | `reasoning.effort: "medium"` |
 | `high` | `reasoning.effort: "high"` |
 | `xhigh` | `reasoning.effort: "xhigh"` |
+| `max` | `reasoning.effort: "max"` |
 
 ### 4.3 写成 Gemini
 
@@ -265,13 +269,13 @@ effort 映射：
 映射规则：
 
 - Pro 型号：
-  - `high` / `xhigh` -> `high`
+  - `high` / `xhigh` / `max` -> `high`
   - 其余开启态 -> `low`
 - 非 Pro 型号：
   - `none` -> `minimal`
   - `low` -> `low`
   - `medium` -> `medium`
-  - `high` / `xhigh` -> `high`
+  - `high` / `xhigh` / `max` -> `high`
   - 其余 -> `minimal`
 
 关闭规则：
@@ -289,6 +293,7 @@ effort 映射：
 | `medium` | `low` | `medium` |
 | `high` | `high` | `high` |
 | `xhigh` | `high` | `high` |
+| `max` | `high` | `high` |
 
 #### B. Gemini 2.5 系列：使用 `thinkingBudget`
 
@@ -327,6 +332,7 @@ effort 映射：
 | `medium` | `8192` | `8192` | `8192` |
 | `high` | `16384` | `16384` | `16384` |
 | `xhigh` | `32768` | `24576` | `24576` |
+| `max` | `32768` | `24576` | `24576` |
 
 开启态行的 `includeThoughts` 为 `true`，`none` 行为 `false`。
 
@@ -360,7 +366,7 @@ effort 映射：
 
 其中：
 
-- `xhigh` -> Claude `output_config.effort=max`
+- `xhigh` / `max` -> Claude `output_config.effort=max`
 - `high` -> `high`
 - `medium` -> `medium`
 - `low` / `minimal` / `none` 的 adaptive 输出强度会落到 `low`
@@ -375,6 +381,7 @@ effort 映射：
 | `medium` | `thinking.type=enabled`, `budget_tokens=8192` | `thinking.type=adaptive`, `output_config.effort=medium` |
 | `high` | `thinking.type=enabled`, `budget_tokens=16384` | `thinking.type=adaptive`, `output_config.effort=high` |
 | `xhigh` | `thinking.type=enabled`, `budget_tokens=32768` | `thinking.type=adaptive`, `output_config.effort=max` |
+| `max` | `thinking.type=enabled`, `budget_tokens=32768` | `thinking.type=adaptive`, `output_config.effort=max` |
 
 budget 模式下的约束：
 
@@ -418,6 +425,7 @@ adaptive 能力判断：
 | `medium` | `enable_thinking=true`, `thinking_budget=8192` | `enable_thinking=true`；无 `thinking_budget` |
 | `high` | `enable_thinking=true`, `thinking_budget=16384` | `enable_thinking=true`；无 `thinking_budget` |
 | `xhigh` | `enable_thinking=true`, `thinking_budget=16384` | `enable_thinking=true`；无 `thinking_budget` |
+| `max` | `enable_thinking=true`, `thinking_budget=16384` | `enable_thinking=true`；无 `thinking_budget` |
 
 当前认为支持 `thinking_budget` 的模型包括：
 
@@ -465,6 +473,7 @@ Ali 特殊规则：
 | `medium` | `thinking.type=enabled` |
 | `high` | `thinking.type=enabled` |
 | `xhigh` | `thinking.type=enabled` |
+| `max` | `thinking.type=enabled` |
 
 ### 4.7 写成 Qianfan
 
@@ -503,6 +512,7 @@ Ali 特殊规则：
 | `medium` | `reasoning_effort=high` | `enable_thinking=true`；支持时 `thinking_budget=8192` | `thinking.type=enabled`；支持时 `thinking_budget=8192` | `thinking_budget=8192` |
 | `high` | `reasoning_effort=high` | `enable_thinking=true`；支持时 `thinking_budget=16384` | `thinking.type=enabled`；支持时 `thinking_budget=16384` | `thinking_budget=16384` |
 | `xhigh` | `reasoning_effort=max` | `enable_thinking=true`；支持时 `thinking_budget=16384` | `thinking.type=enabled`；支持时 `thinking_budget=16384` | `thinking_budget=16384` |
+| `max` | `reasoning_effort=max` | `enable_thinking=true`；支持时 `thinking_budget=16384` | `thinking.type=enabled`；支持时 `thinking_budget=16384` | `thinking_budget=16384` |
 
 对于 OpenAI Responses 入参，Qianfan 也会把 `reasoning.effort`
 归一化成同一套千帆上游字段。
@@ -529,6 +539,7 @@ Moonshot / Kimi 只会对支持 thinking 开关的上游模型写 Kimi `thinking
 | `medium` | `thinking.type=enabled` |
 | `high` | `thinking.type=enabled` |
 | `xhigh` | `thinking.type=enabled` |
+| `max` | `thinking.type=enabled` |
 
 对于不支持开关的 Kimi 模型，adaptor 会移除 `reasoning_effort`，并且不发送
 `thinking`。Kimi 输出当前只保留开关语义，不保留 budget / 细粒度 effort。
@@ -580,6 +591,13 @@ Moonshot / Kimi 只会对支持 thinking 开关的上游模型写 Kimi `thinking
 | `gpt-5-pro*` | `high` | 任意不支持的值 -> `high` |
 | `gpt-5*` | `minimal`, `low`, `medium`, `high` | `none` -> `minimal`；`xhigh` -> `high` |
 
+对于已知 GPT 模型家族，`max` 被视为 `xhigh` 之上的一个级别：
+
+| 模型匹配 | `max` 迁移到 |
+| --- | --- |
+| `gpt-5.5*`、`gpt-5.4*`、`gpt-5.2*`、`gpt-5.4-pro*`、`gpt-5.2-pro*` | `xhigh` |
+| `gpt-5.1*`、`gpt-5*`、`gpt-5-pro*` | `high` |
+
 ## 5.2 Google Gemini
 
 支持 reasoning 转换的模式：
@@ -602,6 +620,7 @@ Moonshot / Kimi 只会对支持 thinking 开关的上游模型写 Kimi `thinking
 | `medium` | `thinkingLevel=low` | `thinkingLevel=medium` | `thinkingBudget=8192`, `includeThoughts=true` | `thinkingBudget=8192`, `includeThoughts=true` | `thinkingBudget=8192`, `includeThoughts=true` |
 | `high` | `thinkingLevel=high` | `thinkingLevel=high` | `thinkingBudget=16384`, `includeThoughts=true` | `thinkingBudget=16384`, `includeThoughts=true` | `thinkingBudget=16384`, `includeThoughts=true` |
 | `xhigh` | `thinkingLevel=high` | `thinkingLevel=high` | `thinkingBudget=32768`, `includeThoughts=true` | `thinkingBudget=24576`, `includeThoughts=true` | `thinkingBudget=24576`, `includeThoughts=true` |
+| `max` | `thinkingLevel=high` | `thinkingLevel=high` | `thinkingBudget=32768`, `includeThoughts=true` | `thinkingBudget=24576`, `includeThoughts=true` | `thinkingBudget=24576`, `includeThoughts=true` |
 
 说明：
 
@@ -633,6 +652,7 @@ Moonshot / Kimi 只会对支持 thinking 开关的上游模型写 Kimi `thinking
 | `medium` | `thinking.type=enabled`, `budget_tokens=8192` | `thinking.type=adaptive`, `output_config.effort=medium` |
 | `high` | `thinking.type=enabled`, `budget_tokens=16384` | `thinking.type=adaptive`, `output_config.effort=high` |
 | `xhigh` | `thinking.type=enabled`, `budget_tokens=32768` | `thinking.type=adaptive`, `output_config.effort=max` |
+| `max` | `thinking.type=enabled`, `budget_tokens=32768` | `thinking.type=adaptive`, `output_config.effort=max` |
 
 说明：
 
@@ -694,6 +714,7 @@ Ali 各档 effort 的精确映射：
 | `medium` | `enable_thinking=true`；`thinking_budget=8192` | `enable_thinking=true`；无 `thinking_budget` |
 | `high` | `enable_thinking=true`；`thinking_budget=16384` | `enable_thinking=true`；无 `thinking_budget` |
 | `xhigh` | `enable_thinking=true`；`thinking_budget=16384` | `enable_thinking=true`；无 `thinking_budget` |
+| `max` | `enable_thinking=true`；`thinking_budget=16384` | `enable_thinking=true`；无 `thinking_budget` |
 
 Ali 支持 `thinking_budget` 的模型判断：
 
@@ -734,6 +755,7 @@ Ali 特殊规则：
 | `medium` | `thinking.type=enabled` |
 | `high` | `thinking.type=enabled` |
 | `xhigh` | `thinking.type=enabled` |
+| `max` | `thinking.type=enabled` |
 
 说明：
 
@@ -762,6 +784,7 @@ Chat / Gemini 两条 hook 路径的精确 effort 映射：
 | `medium` | `thinking.type=enabled` |
 | `high` | `thinking.type=enabled` |
 | `xhigh` | `thinking.type=enabled` |
+| `max` | `thinking.type=enabled` |
 
 DeepSeek 当前在 hooked 的 OpenAI Chat 与 Gemini 路径只保留 enabled / disabled。
 
@@ -787,6 +810,7 @@ Chat / Gemini / Anthropic 三条 hook 路径的精确 effort 映射：
 | `medium` | `thinking.type=enabled` |
 | `high` | `thinking.type=enabled` |
 | `xhigh` | `thinking.type=enabled` |
+| `max` | `thinking.type=enabled` |
 
 Zhipu 当前在 hooked 路径只保留 enabled / disabled。
 
@@ -812,6 +836,7 @@ Zhipu 当前在 hooked 路径只保留 enabled / disabled。
 | `medium` | `reasoning_effort=high` | `enable_thinking=true`；支持时 `thinking_budget=8192` | `thinking.type=enabled`；支持时 `thinking_budget=8192` | `thinking_budget=8192` |
 | `high` | `reasoning_effort=high` | `enable_thinking=true`；支持时 `thinking_budget=16384` | `thinking.type=enabled`；支持时 `thinking_budget=16384` | `thinking_budget=16384` |
 | `xhigh` | `reasoning_effort=max` | `enable_thinking=true`；支持时 `thinking_budget=16384` | `thinking.type=enabled`；支持时 `thinking_budget=16384` | `thinking_budget=16384` |
+| `max` | `reasoning_effort=max` | `enable_thinking=true`；支持时 `thinking_budget=16384` | `thinking.type=enabled`；支持时 `thinking_budget=16384` | `thinking_budget=16384` |
 
 说明：
 
@@ -852,6 +877,7 @@ Moonshot adaptor 当前把以下 actual upstream model name 视为支持 thinkin
 | `medium` | `thinking.type=enabled`；移除 `reasoning_effort` |
 | `high` | `thinking.type=enabled`；移除 `reasoning_effort` |
 | `xhigh` | `thinking.type=enabled`；移除 `reasoning_effort` |
+| `max` | `thinking.type=enabled`；移除 `reasoning_effort` |
 
 对于不支持切换的 Kimi 模型，例如专用 thinking 模型，adaptor 会移除 `reasoning_effort` 并省略 `thinking`。
 它不会向不能关闭 thinking 的模型发送 `thinking.type=disabled`。

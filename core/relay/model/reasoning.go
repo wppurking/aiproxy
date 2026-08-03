@@ -11,6 +11,7 @@ const (
 	ReasoningEffortMedium  ReasoningEffort = "medium"
 	ReasoningEffortHigh    ReasoningEffort = "high"
 	ReasoningEffortXHigh   ReasoningEffort = "xhigh"
+	ReasoningEffortMax     ReasoningEffort = "max"
 )
 
 type NormalizedReasoning struct {
@@ -32,8 +33,10 @@ func NormalizeReasoningEffort(effort string) ReasoningEffort {
 		return ReasoningEffortMedium
 	case "high":
 		return ReasoningEffortHigh
-	case "xhigh", "max", "maximum":
+	case "xhigh":
 		return ReasoningEffortXHigh
+	case "max", "maximum":
+		return ReasoningEffortMax
 	default:
 		return ""
 	}
