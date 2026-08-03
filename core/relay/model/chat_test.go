@@ -10,6 +10,23 @@ import (
 	"github.com/smartystreets/goconvey/convey"
 )
 
+func TestToolCallOmitsEmptyDeltaFields(t *testing.T) {
+	data, err := json.Marshal(model.ToolCall{
+		Index: 0,
+		Function: model.Function{
+			Arguments: `{"command":"kubectl logs ..."}`,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := `{"index":0,"function":{"arguments":"{\"command\":\"kubectl logs ...\"}"}}`
+	if string(data) != expected {
+		t.Fatalf("unexpected tool call JSON: %s", data)
+	}
+}
+
 func TestChatUsage(t *testing.T) {
 	convey.Convey("ChatUsage", t, func() {
 		convey.Convey("ToModelUsage", func() {
