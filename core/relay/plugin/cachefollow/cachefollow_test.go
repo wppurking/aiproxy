@@ -576,9 +576,9 @@ func TestDoResponseRecordsOllamaCloudModelViaModelMapping(t *testing.T) {
 	// ollama cloud 变体，真正发给上游的是 `qwen3:cloud`。此时也应跳过缓存
 	// 命中 token 判断但仍然记录 cachefollow 映射。
 	requestMeta := &meta.Meta{
-		Mode:         mode.ChatCompletions,
-		OriginModel:  "my-alias",
-		ActualModel:  "qwen3:cloud",
+		Mode:        mode.ChatCompletions,
+		OriginModel: "my-alias",
+		ActualModel: "qwen3:cloud",
 		ModelConfig: model.ModelConfig{
 			Model: "my-alias",
 			Plugin: map[string]map[string]any{

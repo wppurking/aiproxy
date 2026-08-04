@@ -131,11 +131,11 @@ func shouldRecord(
 		return false
 	}
 
-	// ollama cloud 模型（带有 :cloud 后缀）不返回缓存命中 token，跳过缓存 usage 判断。
+	// ollama cloud 模型（带有 :cloud / -cloud 后缀）不返回缓存命中 token，跳过缓存 usage 判断。
 	// 注意：需同时检查 mapping 后的 ActualModel，否则通过 ModelMapping
 	// 把普通模型映射成 :cloud 变体时会漏判（真正决定走云端的是上游模型名）。
-	isCloudModel := strings.HasSuffix(meta.OriginModel, ":cloud") ||
-		strings.HasSuffix(meta.ActualModel, ":cloud")
+	isCloudModel := isCloudModelName(meta.OriginModel) ||
+		isCloudModelName(meta.ActualModel)
 
 	if !isCloudModel &&
 		(result.Usage.CachedTokens <= 0 && result.Usage.CacheCreationTokens <= 0) {
@@ -156,6 +156,11 @@ func shouldRecord(
 	}
 
 	return true
+}
+
+// isCloudModelName 判断模型名是否为 ollama cloud 变体（:cloud 或 -cloud 后缀）。
+func isCloudModelName(model string) bool {
+	return strings.HasSuffix(model, ":cloud") || strings.HasSuffix(model, "-cloud")
 }
 
 func saveStableStoreMapping(
