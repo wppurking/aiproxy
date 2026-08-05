@@ -4,7 +4,7 @@ WORKDIR /aiproxy/web
 
 COPY ./web/ ./
 
-RUN npm install -g pnpm
+RUN npm install -g pnpm@10.32.0
 
 RUN pnpm install && pnpm run build
 
