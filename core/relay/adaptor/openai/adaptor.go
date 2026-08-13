@@ -434,17 +434,39 @@ func ConvertRequest(
 	}
 }
 
-//nolint:gocyclo
 func DoResponse(
 	meta *meta.Meta,
 	store adaptor.Store,
 	c *gin.Context,
 	resp *http.Response,
+	options ...DoResponseOptions,
+) (result adaptor.DoResponseResult, err adaptor.Error) {
+	responseOptions := defaultConfig().doResponseOptions()
+	if len(options) > 0 {
+		responseOptions = options[0]
+	}
+
+	return doResponse(meta, store, c, resp, responseOptions)
+}
+
+//nolint:gocyclo
+func doResponse(
+	meta *meta.Meta,
+	store adaptor.Store,
+	c *gin.Context,
+	resp *http.Response,
+	options DoResponseOptions,
 ) (result adaptor.DoResponseResult, err adaptor.Error) {
 	switch meta.Mode {
 	case mode.Responses:
 		if utils.IsStreamResponse(resp) {
-			result, err = ResponseStreamHandler(meta, store, c, resp)
+			result, err = responseStreamHandler(
+				meta,
+				store,
+				c,
+				resp,
+				options.ResponsesFirstEventTimeout,
+			)
 		} else {
 			result, err = ResponseHandler(meta, store, c, resp)
 		}
@@ -588,13 +610,29 @@ func (a *Adaptor) DoResponse(
 	c *gin.Context,
 	resp *http.Response,
 ) (result adaptor.DoResponseResult, err adaptor.Error) {
-	return DoResponse(meta, store, c, resp)
+	options := defaultConfig().doResponseOptions()
+	if meta.Mode == mode.Responses && utils.IsStreamResponse(resp) {
+		var configErr error
+
+		cfg, configErr := a.loadConfig(meta)
+		if configErr != nil {
+			return adaptor.DoResponseResult{}, relaymodel.WrapperOpenAIError(
+				configErr,
+				"load_channel_config_failed",
+				http.StatusInternalServerError,
+			)
+		}
+
+		options = cfg.doResponseOptions()
+	}
+
+	return DoResponse(meta, store, c, resp, options)
 }
 
 func (a *Adaptor) Metadata() adaptor.Metadata {
 	return adaptor.Metadata{
-		Readme:       "OpenAI native API\nSupports chat, completions, embeddings, moderations, image, audio, rerank, PDF parsing, video generation, and Responses API\nAlso supports Anthropic-compatible and Gemini-compatible request conversion on top of the OpenAI endpoint\nChannel config `map_reasoning_to_reasoning_content` rewrites upstream `reasoning` fields to `reasoning_content` in chat completion responses",
-		ConfigSchema: configSchema(),
+		Readme:       "OpenAI native API\nSupports chat, completions, embeddings, moderations, image, audio, rerank, PDF parsing, video generation, and Responses API\nAlso supports Anthropic-compatible and Gemini-compatible request conversion on top of the OpenAI endpoint\nChannel config `responses_first_event_timeout` sets the maximum seconds to wait for the first effective Responses stream event\nChannel config `map_reasoning_to_reasoning_content` rewrites upstream `reasoning` fields to `reasoning_content` in chat completion responses",
+		ConfigSchema: ConfigSchema(),
 		Models:       ModelList,
 	}
 }

@@ -171,6 +171,47 @@ func TestConvertClaudeToResponsesRequest(t *testing.T) {
 	}
 }
 
+func TestConvertClaudeToResponsesRequestPreservesImages(t *testing.T) {
+	req := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		"/v1/messages",
+		strings.NewReader(`{
+			"model":"gpt-5.6",
+			"max_tokens":128,
+			"messages":[{
+				"role":"user",
+				"content":[
+					{"type":"text","text":"Describe this image"},
+					{"type":"image","source":{"type":"url","url":"https://example.com/image.png"}}
+				]
+			}]
+		}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+
+	result, err := openai.ConvertClaudeToResponsesRequest(&meta.Meta{
+		ActualModel: "gpt-5.6",
+	}, req)
+	require.NoError(t, err)
+
+	var responsesReq relaymodel.CreateResponseRequest
+	require.NoError(t, json.NewDecoder(result.Body).Decode(&responsesReq))
+
+	items, ok := responsesReq.Input.([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	item, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	content, ok := item["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, content, 2)
+	image, ok := content[1].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "input_image", image["type"])
+	assert.Equal(t, "https://example.com/image.png", image["image_url"])
+}
+
 func TestConvertClaudeRequest_ReasoningEffortCompatibility(t *testing.T) {
 	t.Parallel()
 

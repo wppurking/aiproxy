@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next'
 import CodeBlock from './CodeHight'
 import { toast } from 'sonner'
 import { TFunction } from 'i18next'
+import { writeTextToClipboard } from '@/lib/clipboard'
 
 interface ApiDocContent {
     title: string
@@ -1002,7 +1003,7 @@ const ApiDocDrawer: React.FC<ApiDocDrawerProps> = ({ isOpen, onClose, modelConfi
 
                                     <Button
                                         onClick={() => {
-                                            navigator.clipboard.writeText(apiDoc.requestExample).then(
+                                            writeTextToClipboard(apiDoc.requestExample).then(
                                                 () => {
                                                     toast.success(t('common.copied'))
                                                 },
@@ -1124,7 +1125,7 @@ const ApiDocDrawer: React.FC<ApiDocDrawerProps> = ({ isOpen, onClose, modelConfi
 
                                     <Button
                                         onClick={() => {
-                                            navigator.clipboard.writeText(apiDoc.responseExample).then(
+                                            writeTextToClipboard(apiDoc.responseExample).then(
                                                 () => {
                                                     toast.success(t('common.copied'))
                                                 },

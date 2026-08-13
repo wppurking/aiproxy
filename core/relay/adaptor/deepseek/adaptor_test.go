@@ -123,6 +123,12 @@ func TestDeepseekGetRequestURLOpenAIModes(t *testing.T) {
 			baseURL: baseURL,
 			wantURL: "https://api.deepseek.com/v1/chat/completions",
 		},
+		{
+			name:    "responses official base",
+			mode:    mode.Responses,
+			baseURL: baseURL,
+			wantURL: "https://api.deepseek.com/v1/responses",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -139,6 +145,30 @@ func TestDeepseekGetRequestURLOpenAIModes(t *testing.T) {
 			assert.Equal(t, tc.wantURL, reqURL.URL)
 		})
 	}
+}
+
+func TestDeepseekSupportModeResponses(t *testing.T) {
+	a := &Adaptor{}
+
+	assert.True(t, a.SupportMode(&meta.Meta{
+		Mode:        mode.Responses,
+		ActualModel: "deepseek-v4-flash",
+	}))
+	assert.False(t, a.SupportMode(&meta.Meta{
+		Mode:        mode.Responses,
+		ActualModel: "deepseek-chat",
+	}))
+	assert.False(t, a.SupportMode(&meta.Meta{
+		Mode: mode.ResponsesGet,
+	}))
+}
+
+func TestDeepseekMetadataIncludesOpenAIConfigSchema(t *testing.T) {
+	metadata := (&Adaptor{}).Metadata()
+	properties, ok := metadata.ConfigSchema["properties"].(map[string]any)
+	require.True(t, ok)
+	_, ok = properties["responses_first_event_timeout"]
+	assert.True(t, ok)
 }
 
 func TestDeepseekSetupRequestHeaderAnthropic(t *testing.T) {

@@ -165,10 +165,13 @@ type ResponseError struct {
 
 // ResponseTool represents a tool in the Responses API format (flattened structure)
 type ResponseTool struct {
-	Type        string `json:"type"`
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
-	Parameters  any    `json:"parameters,omitempty"`
+	Type         string `json:"type"`
+	Name         string `json:"name,omitempty"`
+	Execution    string `json:"execution,omitempty"`
+	Description  string `json:"description,omitempty"`
+	Parameters   any    `json:"parameters,omitempty"`
+	Strict       *bool  `json:"strict,omitempty"`
+	DeferLoading *bool  `json:"defer_loading,omitempty"`
 }
 
 // IncompleteDetails represents details about why a response is incomplete
@@ -199,14 +202,21 @@ type ResponseTextFormat struct {
 
 // ResponseText represents text configuration
 type ResponseText struct {
-	Format ResponseTextFormat `json:"format"`
+	Format    ResponseTextFormat `json:"format"`
+	Verbosity string             `json:"verbosity,omitempty"`
 }
 
 // OutputContent represents content in an output item
 type OutputContent struct {
-	Type        string `json:"type"`
-	Text        string `json:"text,omitempty"`
-	Annotations []any  `json:"annotations,omitempty"`
+	Type        string                       `json:"type"`
+	Text        string                       `json:"text,omitempty"`
+	Refusal     string                       `json:"refusal,omitempty"`
+	Annotations []any                        `json:"annotations,omitempty"`
+	Logprobs    []ChatCompletionTokenLogprob `json:"logprobs,omitempty"`
+}
+
+type ResponseStreamOptions struct {
+	IncludeObfuscation *bool `json:"include_obfuscation,omitempty"`
 }
 
 // OutputItem represents an output item in a response
@@ -224,8 +234,10 @@ type OutputItem struct {
 
 // InputContent represents content in an input item
 type InputContent struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type                  string `json:"type"`
+	Text                  string `json:"text,omitempty"`
+	Refusal               string `json:"refusal,omitempty"`
+	PromptCacheBreakpoint any    `json:"prompt_cache_breakpoint,omitempty"`
 	// Fields for input_image type
 	ImageURL string `json:"image_url,omitempty"`
 	FileID   string `json:"file_id,omitempty"`
@@ -323,36 +335,40 @@ type Response struct {
 	ServiceTier          *string            `json:"service_tier,omitempty"`
 	User                 *string            `json:"user"`
 	Metadata             map[string]any     `json:"metadata"`
+	Moderation           any                `json:"moderation,omitempty"`
 }
 
 // CreateResponseRequest represents a request to create a response
 type CreateResponseRequest struct {
-	Model                string             `json:"model"`
-	Input                any                `json:"input"`
-	Background           *bool              `json:"background,omitempty"`
-	Conversation         any                `json:"conversation,omitempty"` // string or object
-	Include              []string           `json:"include,omitempty"`
-	Instructions         *string            `json:"instructions,omitempty"`
-	MaxOutputTokens      *int               `json:"max_output_tokens,omitempty"`
-	MaxToolCalls         *int               `json:"max_tool_calls,omitempty"`
-	Metadata             map[string]any     `json:"metadata,omitempty"`
-	ParallelToolCalls    *bool              `json:"parallel_tool_calls,omitempty"`
-	PreviousResponseID   *string            `json:"previous_response_id,omitempty"`
-	PromptCacheKey       *string            `json:"prompt_cache_key,omitempty"`
-	PromptCacheRetention *string            `json:"prompt_cache_retention,omitempty"`
-	Reasoning            *ResponseReasoning `json:"reasoning,omitempty"`
-	SafetyIdentifier     *string            `json:"safety_identifier,omitempty"`
-	ServiceTier          *string            `json:"service_tier,omitempty"`
-	Store                *bool              `json:"store,omitempty"`
-	Stream               bool               `json:"stream,omitempty"`
-	Temperature          *float64           `json:"temperature,omitempty"`
-	Text                 *ResponseText      `json:"text,omitempty"`
-	ToolChoice           any                `json:"tool_choice,omitempty"`
-	Tools                []ResponseTool     `json:"tools,omitempty"`
-	TopLogprobs          *int               `json:"top_logprobs,omitempty"`
-	TopP                 *float64           `json:"top_p,omitempty"`
-	Truncation           *string            `json:"truncation,omitempty"`
-	User                 *string            `json:"user,omitempty"` // Deprecated, use prompt_cache_key
+	Model                string                 `json:"model"`
+	Input                any                    `json:"input"`
+	Background           *bool                  `json:"background,omitempty"`
+	Conversation         any                    `json:"conversation,omitempty"` // string or object
+	Include              []string               `json:"include,omitempty"`
+	Instructions         *string                `json:"instructions,omitempty"`
+	MaxOutputTokens      *int                   `json:"max_output_tokens,omitempty"`
+	MaxToolCalls         *int                   `json:"max_tool_calls,omitempty"`
+	Metadata             map[string]any         `json:"metadata,omitempty"`
+	ParallelToolCalls    *bool                  `json:"parallel_tool_calls,omitempty"`
+	PreviousResponseID   *string                `json:"previous_response_id,omitempty"`
+	PromptCacheKey       *string                `json:"prompt_cache_key,omitempty"`
+	PromptCacheOptions   *PromptCacheOptions    `json:"prompt_cache_options,omitempty"`
+	PromptCacheRetention *string                `json:"prompt_cache_retention,omitempty"`
+	Reasoning            *ResponseReasoning     `json:"reasoning,omitempty"`
+	SafetyIdentifier     *string                `json:"safety_identifier,omitempty"`
+	Moderation           any                    `json:"moderation,omitempty"`
+	ServiceTier          *string                `json:"service_tier,omitempty"`
+	Store                *bool                  `json:"store,omitempty"`
+	Stream               bool                   `json:"stream,omitempty"`
+	StreamOptions        *ResponseStreamOptions `json:"stream_options,omitempty"`
+	Temperature          *float64               `json:"temperature,omitempty"`
+	Text                 *ResponseText          `json:"text,omitempty"`
+	ToolChoice           any                    `json:"tool_choice,omitempty"`
+	Tools                []ResponseTool         `json:"tools,omitempty"`
+	TopLogprobs          *int                   `json:"top_logprobs,omitempty"`
+	TopP                 *float64               `json:"top_p,omitempty"`
+	Truncation           *string                `json:"truncation,omitempty"`
+	User                 *string                `json:"user,omitempty"` // Deprecated, use prompt_cache_key
 }
 
 // InputItemList represents a list of input items
@@ -366,18 +382,20 @@ type InputItemList struct {
 
 // ResponseStreamEvent represents a server-sent event for response streaming
 type ResponseStreamEvent struct {
-	Type           string            `json:"type"`
-	Response       *Response         `json:"response,omitempty"`
-	Error          *OpenAIError      `json:"error,omitempty"`
-	OutputIndex    *int              `json:"output_index,omitempty"`
-	Item           *OutputItem       `json:"item,omitempty"`
-	ItemID         string            `json:"item_id,omitempty"`
-	ContentIndex   *int              `json:"content_index,omitempty"`
-	Part           *OutputContent    `json:"part,omitempty"`      // For content_part events
-	Delta          string            `json:"delta,omitempty"`     // For text.delta, function_call_arguments.delta
-	Text           string            `json:"text,omitempty"`      // For text content
-	Arguments      ResponseArguments `json:"arguments,omitempty"` // For function_call_arguments.done
-	SequenceNumber int               `json:"sequence_number,omitempty"`
+	Type           string                       `json:"type"`
+	Response       *Response                    `json:"response,omitempty"`
+	Error          *OpenAIError                 `json:"error,omitempty"`
+	OutputIndex    *int                         `json:"output_index,omitempty"`
+	Item           *OutputItem                  `json:"item,omitempty"`
+	ItemID         string                       `json:"item_id,omitempty"`
+	ContentIndex   *int                         `json:"content_index,omitempty"`
+	Part           *OutputContent               `json:"part,omitempty"`  // For content_part events
+	Delta          string                       `json:"delta,omitempty"` // For text.delta, function_call_arguments.delta
+	Logprobs       []ChatCompletionTokenLogprob `json:"logprobs,omitempty"`
+	Obfuscation    string                       `json:"obfuscation,omitempty"`
+	Text           string                       `json:"text,omitempty"`      // For text content
+	Arguments      ResponseArguments            `json:"arguments,omitempty"` // For function_call_arguments.done
+	SequenceNumber int                          `json:"sequence_number,omitempty"`
 }
 
 func (r *Response) ToolUsageWebSearchCallCount() int64 {

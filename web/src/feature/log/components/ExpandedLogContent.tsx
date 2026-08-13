@@ -12,6 +12,7 @@ import { ChannelDialog } from '@/feature/channel/components/ChannelDialog'
 import type { Channel } from '@/types/channel'
 import { toast } from 'sonner'
 import { openResourceDialog, showDeletedResourceToast } from '@/utils/resource-dialog'
+import { writeTextToClipboard } from '@/lib/clipboard'
 
 // Format price with unit
 const formatPrice = (price: number, unit: number): string => {
@@ -99,7 +100,7 @@ export const ExpandedLogContent = ({ log }: { log: LogRecord }) => {
 
     const copyToClipboard = (text?: string) => {
         if (!text) return
-        navigator.clipboard.writeText(text).then(() => {
+        writeTextToClipboard(text).then(() => {
             toast.success(t('common.copied'))
         }).catch(() => {
             toast.error(t('common.copyFailed'))

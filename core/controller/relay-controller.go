@@ -20,7 +20,6 @@ import (
 	"github.com/labring/aiproxy/core/common/conv"
 	"github.com/labring/aiproxy/core/middleware"
 	"github.com/labring/aiproxy/core/model"
-	"github.com/labring/aiproxy/core/monitor"
 	"github.com/labring/aiproxy/core/relay/adaptor"
 	"github.com/labring/aiproxy/core/relay/adaptors"
 	"github.com/labring/aiproxy/core/relay/controller"
@@ -546,12 +545,11 @@ func buildBodyDetailOption(meta *meta.Meta) controller.BodyDetailOption {
 }
 
 type retryState struct {
-	retryTimes                           int
-	lastMinErrorRateHasPermissionChannel *model.Channel
-	preferChannelIDs                     []int
-	ignoreChannelIDs                     map[int64]struct{}
-	exhausted                            bool
-	failedChannelIDs                     map[int64]struct{} // Track all failed channels in this request
+	retryTimes        int
+	designatedChannel *model.Channel
+	preferChannelIDs  []int
+	ignoreChannelIDs  map[int64]struct{}
+	failedChannelIDs  map[int64]struct{} // Track failed channels in the current retry round
 
 	meta                *meta.Meta
 	price               model.Price
@@ -622,7 +620,7 @@ func initRetryState(
 	}
 
 	if channel.designatedChannel {
-		state.exhausted = true
+		state.designatedChannel = channel.channel
 	}
 
 	if !monitorplugin.ChannelHasPermission(result.Error) {
@@ -631,8 +629,6 @@ func initRetryState(
 		}
 
 		state.ignoreChannelIDs[int64(channel.channel.ID)] = struct{}{}
-	} else {
-		state.lastMinErrorRateHasPermissionChannel = channel.channel
 	}
 
 	return state
@@ -693,7 +689,7 @@ func (s *retryState) remainingRelayDelay(
 func retryLoop(c *gin.Context, mode mode.Mode, state *retryState, relayController RelayHandler) {
 	log := common.GetLogger(c)
 
-	// do not use for i := range state.retryTimes, because the retryTimes is constant
+	// retryTimes can grow when permission failures add more eligible-channel attempts
 	i := 0
 
 	for {
@@ -819,49 +815,17 @@ func handleRetryResult(
 
 	hasPermission := monitorplugin.ChannelHasPermission(state.result.Error)
 
-	if state.exhausted {
-		if !hasPermission {
-			return true
+	if state.designatedChannel != nil {
+		return !hasPermission
+	}
+
+	if !hasPermission {
+		if state.ignoreChannelIDs == nil {
+			state.ignoreChannelIDs = make(map[int64]struct{})
 		}
-	} else {
-		if !hasPermission {
-			if state.ignoreChannelIDs == nil {
-				state.ignoreChannelIDs = make(map[int64]struct{})
-			}
 
-			state.ignoreChannelIDs[int64(newChannel.ID)] = struct{}{}
-			state.retryTimes++
-		} else {
-			if state.lastMinErrorRateHasPermissionChannel == nil {
-				state.lastMinErrorRateHasPermissionChannel = newChannel
-				return false
-			}
-
-			currentErrorRate, err := monitor.GetChannelModelErrorRate(
-				ctx.Request.Context(),
-				state.meta.OriginModel,
-				int64(state.lastMinErrorRateHasPermissionChannel.ID),
-			)
-			if err != nil {
-				return false
-			}
-
-			newErrorRate, err := monitor.GetChannelModelErrorRate(
-				ctx.Request.Context(),
-				state.meta.OriginModel,
-				int64(newChannel.ID),
-			)
-			if err != nil {
-				return false
-			}
-
-			state.lastMinErrorRateHasPermissionChannel = pickMinErrorRateHasPermissionChannel(
-				state.lastMinErrorRateHasPermissionChannel,
-				currentErrorRate,
-				newChannel,
-				newErrorRate,
-			)
-		}
+		state.ignoreChannelIDs[int64(newChannel.ID)] = struct{}{}
+		state.retryTimes++
 	}
 
 	return false

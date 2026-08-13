@@ -63,6 +63,7 @@ import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { openResourceDialog, showDeletedResourceToast } from "@/utils/resource-dialog";
 import { getChannelModelMetric } from "@/utils/runtime-metrics";
+import { writeTextToClipboard } from "@/lib/clipboard";
 
 export function ModelTable() {
   const { t } = useTranslation();
@@ -213,8 +214,10 @@ export function ModelTable() {
         <div
           className="font-medium cursor-pointer hover:text-primary transition-colors"
           onClick={() => {
-            navigator.clipboard.writeText(row.original.model).then(() => {
+            writeTextToClipboard(row.original.model).then(() => {
               toast.success(t("common.copied"));
+            }).catch(() => {
+              toast.error(t("common.copyFailed"));
             });
           }}
         >

@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { ExpandedLogContent } from './ExpandedLogContent'
 import { toast } from 'sonner'
 import type { LogRecord } from '@/types/log'
+import { writeTextToClipboard } from '@/lib/clipboard'
 
 const columnHelper = createColumnHelper<LogRecord>()
 
@@ -55,7 +56,7 @@ export function LogTable({
     }
 
     const copyToClipboard = useCallback((text: string) => {
-        navigator.clipboard.writeText(text).then(() => {
+        writeTextToClipboard(text).then(() => {
             toast.success(t('common.copied'))
         }).catch(() => {
             toast.error(t('common.copyFailed'))

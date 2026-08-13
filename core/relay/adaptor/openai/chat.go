@@ -25,6 +25,7 @@ import (
 type chatCompletionStreamState struct {
 	messageID                  string
 	created                    int64
+	serviceTier                *string
 	meta                       *meta.Meta
 	c                          *gin.Context
 	toolCallIndexByItemID      map[string]int
@@ -192,15 +193,21 @@ func (s *chatCompletionStreamState) handleResponseCreated(
 	}
 
 	s.messageID = event.Response.ID
+	if event.Response.ServiceTier != nil {
+		s.serviceTier = event.Response.ServiceTier
+	}
+
 	if event.Response.CreatedAt != 0 {
 		s.created = event.Response.CreatedAt
 	}
 
 	return &relaymodel.ChatCompletionsStreamResponse{
-		ID:      s.messageID,
-		Object:  relaymodel.ChatCompletionChunkObject,
-		Created: s.createdAt(),
-		Model:   responseModelName(s.meta),
+		ID:          s.messageID,
+		Object:      relaymodel.ChatCompletionChunkObject,
+		Created:     s.createdAt(),
+		Model:       responseModelName(s.meta),
+		ServiceTier: s.serviceTier,
+		Obfuscation: event.Obfuscation,
 		Choices: []*relaymodel.ChatCompletionsStreamResponseChoice{
 			{
 				Index: 0,
@@ -220,19 +227,52 @@ func (s *chatCompletionStreamState) handleOutputTextDelta(
 		return nil
 	}
 
-	return &relaymodel.ChatCompletionsStreamResponse{
-		ID:      s.messageID,
-		Object:  relaymodel.ChatCompletionChunkObject,
-		Created: s.createdAt(),
-		Model:   responseModelName(s.meta),
-		Choices: []*relaymodel.ChatCompletionsStreamResponseChoice{
-			{
-				Index: 0,
-				Delta: relaymodel.Message{
-					Content: event.Delta,
-				},
-			},
+	choice := &relaymodel.ChatCompletionsStreamResponseChoice{
+		Index: 0,
+		Delta: relaymodel.Message{
+			Content: event.Delta,
 		},
+	}
+	if len(event.Logprobs) > 0 {
+		choice.Logprobs = &relaymodel.ChoiceLogprobs{Content: event.Logprobs}
+	}
+
+	return &relaymodel.ChatCompletionsStreamResponse{
+		ID:          s.messageID,
+		Object:      relaymodel.ChatCompletionChunkObject,
+		Created:     s.createdAt(),
+		Model:       responseModelName(s.meta),
+		ServiceTier: s.serviceTier,
+		Obfuscation: event.Obfuscation,
+		Choices:     []*relaymodel.ChatCompletionsStreamResponseChoice{choice},
+	}
+}
+
+func (s *chatCompletionStreamState) handleRefusalDelta(
+	event *relaymodel.ResponseStreamEvent,
+) *relaymodel.ChatCompletionsStreamResponse {
+	if event.Delta == "" {
+		return nil
+	}
+
+	choice := &relaymodel.ChatCompletionsStreamResponseChoice{
+		Index: 0,
+		Delta: relaymodel.Message{
+			Refusal: event.Delta,
+		},
+	}
+	if len(event.Logprobs) > 0 {
+		choice.Logprobs = &relaymodel.ChoiceLogprobs{Refusal: event.Logprobs}
+	}
+
+	return &relaymodel.ChatCompletionsStreamResponse{
+		ID:          s.messageID,
+		Object:      relaymodel.ChatCompletionChunkObject,
+		Created:     s.createdAt(),
+		Model:       responseModelName(s.meta),
+		ServiceTier: s.serviceTier,
+		Obfuscation: event.Obfuscation,
+		Choices:     []*relaymodel.ChatCompletionsStreamResponseChoice{choice},
 	}
 }
 
@@ -244,10 +284,12 @@ func (s *chatCompletionStreamState) handleReasoningSummaryTextDelta(
 	}
 
 	return &relaymodel.ChatCompletionsStreamResponse{
-		ID:      s.messageID,
-		Object:  relaymodel.ChatCompletionChunkObject,
-		Created: s.createdAt(),
-		Model:   responseModelName(s.meta),
+		ID:          s.messageID,
+		Object:      relaymodel.ChatCompletionChunkObject,
+		Created:     s.createdAt(),
+		Model:       responseModelName(s.meta),
+		ServiceTier: s.serviceTier,
+		Obfuscation: event.Obfuscation,
 		Choices: []*relaymodel.ChatCompletionsStreamResponseChoice{
 			{
 				Index: 0,
@@ -274,10 +316,12 @@ func (s *chatCompletionStreamState) handleOutputItemAdded(
 
 		// Send tool call start
 		return &relaymodel.ChatCompletionsStreamResponse{
-			ID:      s.messageID,
-			Object:  relaymodel.ChatCompletionChunkObject,
-			Created: s.createdAt(),
-			Model:   responseModelName(s.meta),
+			ID:          s.messageID,
+			Object:      relaymodel.ChatCompletionChunkObject,
+			Created:     s.createdAt(),
+			Model:       responseModelName(s.meta),
+			ServiceTier: s.serviceTier,
+			Obfuscation: event.Obfuscation,
 			Choices: []*relaymodel.ChatCompletionsStreamResponseChoice{
 				{
 					Index: 0,
@@ -301,10 +345,12 @@ func (s *chatCompletionStreamState) handleOutputItemAdded(
 
 	if event.Item.Type == relaymodel.InputItemTypeMessage {
 		return &relaymodel.ChatCompletionsStreamResponse{
-			ID:      s.messageID,
-			Object:  relaymodel.ChatCompletionChunkObject,
-			Created: s.createdAt(),
-			Model:   responseModelName(s.meta),
+			ID:          s.messageID,
+			Object:      relaymodel.ChatCompletionChunkObject,
+			Created:     s.createdAt(),
+			Model:       responseModelName(s.meta),
+			ServiceTier: s.serviceTier,
+			Obfuscation: event.Obfuscation,
 			Choices: []*relaymodel.ChatCompletionsStreamResponseChoice{
 				{
 					Index: 0,
@@ -334,10 +380,12 @@ func (s *chatCompletionStreamState) handleFunctionCallArgumentsDelta(
 
 	// Send delta
 	return &relaymodel.ChatCompletionsStreamResponse{
-		ID:      s.messageID,
-		Object:  relaymodel.ChatCompletionChunkObject,
-		Created: s.createdAt(),
-		Model:   responseModelName(s.meta),
+		ID:          s.messageID,
+		Object:      relaymodel.ChatCompletionChunkObject,
+		Created:     s.createdAt(),
+		Model:       responseModelName(s.meta),
+		ServiceTier: s.serviceTier,
+		Obfuscation: event.Obfuscation,
 		Choices: []*relaymodel.ChatCompletionsStreamResponseChoice{
 			{
 				Index: 0,
@@ -364,6 +412,10 @@ func (s *chatCompletionStreamState) handleResponseCompleted(
 		return nil
 	}
 
+	if event.Response.ServiceTier != nil {
+		s.serviceTier = event.Response.ServiceTier
+	}
+
 	chatUsage := event.Response.Usage.ToChatUsage()
 
 	finishReason := responseToChatFinishReason(event.Response)
@@ -382,7 +434,10 @@ func (s *chatCompletionStreamState) handleResponseCompleted(
 				FinishReason: finishReason,
 			},
 		},
-		Usage: &chatUsage,
+		Usage:       &chatUsage,
+		Moderation:  event.Response.Moderation,
+		ServiceTier: s.serviceTier,
+		Obfuscation: event.Obfuscation,
 	}
 }
 
@@ -932,11 +987,34 @@ func ConvertToolsToResponseTools(tools []relaymodel.Tool) []relaymodel.ResponseT
 	responseTools := make([]relaymodel.ResponseTool, 0, len(tools))
 
 	for _, tool := range tools {
+		name := tool.Name
+		if name == "" {
+			name = tool.Function.Name
+		}
+
+		description := tool.Description
+		if description == "" {
+			description = tool.Function.Description
+		}
+
+		parameters := tool.Parameters
+		if parameters == nil {
+			parameters = tool.Function.Parameters
+		}
+
+		strict := tool.Strict
+		if strict == nil {
+			strict = tool.Function.Strict
+		}
+
 		responseTool := relaymodel.ResponseTool{
-			Type:        tool.Type,
-			Name:        tool.Function.Name,
-			Description: tool.Function.Description,
-			Parameters:  CleanToolParameters(tool.Function.Parameters),
+			Type:         tool.Type,
+			Name:         name,
+			Execution:    tool.Execution,
+			Description:  description,
+			Parameters:   CleanToolParameters(parameters),
+			Strict:       strict,
+			DeferLoading: tool.DeferLoading,
 		}
 		responseTools = append(responseTools, responseTool)
 	}
@@ -1066,8 +1144,9 @@ func appendChatContentPartToResponseInput(
 		}
 
 		inputItem.Content = append(inputItem.Content, relaymodel.InputContent{
-			Type: contentType,
-			Text: text,
+			Type:                  contentType,
+			Text:                  text,
+			PromptCacheBreakpoint: part["prompt_cache_breakpoint"],
 		})
 	case relaymodel.ContentTypeImageURL:
 		imageURL, _ := part["image_url"].(map[string]any)
@@ -1079,10 +1158,55 @@ func appendChatContentPartToResponseInput(
 
 		detail, _ := imageURL["detail"].(string)
 		inputItem.Content = append(inputItem.Content, relaymodel.InputContent{
-			Type:     "input_image",
-			ImageURL: url,
-			Detail:   detail,
+			Type:                  "input_image",
+			ImageURL:              url,
+			Detail:                detail,
+			PromptCacheBreakpoint: part["prompt_cache_breakpoint"],
 		})
+	}
+}
+
+func appendMessageContentToResponseInput(
+	inputItem *relaymodel.InputItem,
+	contentType relaymodel.InputContentType,
+	content any,
+) {
+	switch content := content.(type) {
+	case string:
+		if content != "" {
+			inputItem.Content = append(inputItem.Content, relaymodel.InputContent{
+				Type: contentType,
+				Text: content,
+			})
+		}
+	case []relaymodel.MessageContent:
+		for _, part := range content {
+			switch part.Type {
+			case relaymodel.ContentTypeText:
+				if part.Text != "" {
+					inputItem.Content = append(inputItem.Content, relaymodel.InputContent{
+						Type:                  contentType,
+						Text:                  part.Text,
+						PromptCacheBreakpoint: part.PromptCacheBreakpoint,
+					})
+				}
+			case relaymodel.ContentTypeImageURL:
+				if part.ImageURL != nil && part.ImageURL.URL != "" {
+					inputItem.Content = append(inputItem.Content, relaymodel.InputContent{
+						Type:                  "input_image",
+						ImageURL:              part.ImageURL.URL,
+						Detail:                part.ImageURL.Detail,
+						PromptCacheBreakpoint: part.PromptCacheBreakpoint,
+					})
+				}
+			}
+		}
+	case []any:
+		for _, part := range content {
+			if partMap, ok := part.(map[string]any); ok {
+				appendChatContentPartToResponseInput(inputItem, contentType, partMap)
+			}
+		}
 	}
 }
 
@@ -1126,23 +1250,27 @@ func ConvertMessagesToInputItems(messages []relaymodel.Message) []relaymodel.Inp
 					Arguments: toolCall.Function.Arguments,
 				})
 			}
-			// If there's also text content in the message, add it as a separate message item
-			var textContent string
-			if content, ok := msg.Content.(string); ok {
-				textContent = content
+
+			messageItem := relaymodel.InputItem{
+				Type:    relaymodel.InputItemTypeMessage,
+				Role:    msg.Role,
+				Content: make([]relaymodel.InputContent, 0),
+			}
+			appendMessageContentToResponseInput(
+				&messageItem,
+				relaymodel.InputContentTypeOutputText,
+				msg.Content,
+			)
+
+			if msg.Refusal != "" {
+				messageItem.Content = append(messageItem.Content, relaymodel.InputContent{
+					Type:    "refusal",
+					Refusal: msg.Refusal,
+				})
 			}
 
-			if textContent != "" {
-				inputItems = append(inputItems, relaymodel.InputItem{
-					Type: relaymodel.InputItemTypeMessage,
-					Role: msg.Role,
-					Content: []relaymodel.InputContent{
-						{
-							Type: relaymodel.InputContentTypeOutputText,
-							Text: textContent,
-						},
-					},
-				})
+			if len(messageItem.Content) > 0 {
+				inputItems = append(inputItems, messageItem)
 			}
 
 			continue
@@ -1171,33 +1299,13 @@ func ConvertMessagesToInputItems(messages []relaymodel.Message) []relaymodel.Inp
 			contentType = relaymodel.InputContentTypeOutputText
 		}
 
-		// Handle regular text content
-		switch content := msg.Content.(type) {
-		case string:
-			// Simple string content
-			if content != "" {
-				inputItem.Content = append(inputItem.Content, relaymodel.InputContent{
-					Type: contentType,
-					Text: content,
-				})
-			}
-		case []relaymodel.MessageContent:
-			// Array of MessageContent (from Claude conversion)
-			for _, part := range content {
-				if part.Type == relaymodel.ContentTypeText && part.Text != "" {
-					inputItem.Content = append(inputItem.Content, relaymodel.InputContent{
-						Type: contentType,
-						Text: part.Text,
-					})
-				}
-			}
-		case []any:
-			// Array of content parts (multimodal)
-			for _, part := range content {
-				if partMap, ok := part.(map[string]any); ok {
-					appendChatContentPartToResponseInput(&inputItem, contentType, partMap)
-				}
-			}
+		appendMessageContentToResponseInput(&inputItem, contentType, msg.Content)
+
+		if role == relaymodel.RoleAssistant && msg.Refusal != "" {
+			inputItem.Content = append(inputItem.Content, relaymodel.InputContent{
+				Type:    "refusal",
+				Refusal: msg.Refusal,
+			})
 		}
 
 		// Only append the message if it has content
@@ -1222,6 +1330,13 @@ func ConvertChatCompletionToResponsesRequest(
 		return adaptor.ConvertResult{}, err
 	}
 
+	if chatReq.N > 1 {
+		return adaptor.ConvertResult{}, convertRequestError(
+			meta,
+			"n must be 1 when converting Chat Completions requests to the Responses API",
+		)
+	}
+
 	// Create Responses API request
 	responsesReq := relaymodel.CreateResponseRequest{
 		Model:  meta.ActualModel,
@@ -1240,6 +1355,16 @@ func ConvertChatCompletionToResponsesRequest(
 
 	if chatReq.ResponseFormat != nil {
 		responsesReq.Text = convertChatResponseFormatToResponseText(chatReq.ResponseFormat)
+	}
+
+	if chatReq.Verbosity != "" {
+		if responsesReq.Text == nil {
+			responsesReq.Text = &relaymodel.ResponseText{
+				Format: relaymodel.ResponseTextFormat{Type: "text"},
+			}
+		}
+
+		responsesReq.Text.Verbosity = chatReq.Verbosity
 	}
 
 	if chatReq.TopLogprobs != nil {
@@ -1288,6 +1413,8 @@ func ConvertChatCompletionToResponsesRequest(
 		responsesReq.PromptCacheKey = &chatReq.PromptCacheKey
 	}
 
+	responsesReq.PromptCacheOptions = chatReq.PromptCacheOptions
+
 	// Map prompt cache retention
 	if chatReq.PromptCacheRetention != "" {
 		responsesReq.PromptCacheRetention = &chatReq.PromptCacheRetention
@@ -1296,6 +1423,20 @@ func ConvertChatCompletionToResponsesRequest(
 	// Map user
 	if chatReq.User != "" {
 		responsesReq.User = &chatReq.User
+	}
+
+	if chatReq.SafetyIdentifier != "" {
+		responsesReq.SafetyIdentifier = &chatReq.SafetyIdentifier
+	}
+
+	responsesReq.Moderation = chatReq.Moderation
+
+	if chatReq.StreamOptions != nil {
+		if chatReq.StreamOptions.IncludeObfuscation != nil {
+			responsesReq.StreamOptions = &relaymodel.ResponseStreamOptions{
+				IncludeObfuscation: chatReq.StreamOptions.IncludeObfuscation,
+			}
+		}
 	}
 
 	reasoning := utils.ParseOpenAIReasoning(&chatReq)
@@ -1361,50 +1502,62 @@ func ConvertResponsesToChatCompletionResponse(
 
 	// Convert to ChatCompletion format
 	chatResp := relaymodel.TextResponse{
-		ID:      responsesResp.ID,
-		Object:  relaymodel.ChatCompletionObject,
-		Created: responsesResp.CreatedAt,
-		Model:   responseModelName(meta),
-		Choices: []*relaymodel.TextResponseChoice{},
-		Usage:   relaymodel.ChatUsage{},
+		ID:          responsesResp.ID,
+		Object:      relaymodel.ChatCompletionObject,
+		Created:     responsesResp.CreatedAt,
+		Model:       responseModelName(meta),
+		Choices:     []*relaymodel.TextResponseChoice{},
+		Usage:       relaymodel.ChatUsage{},
+		Moderation:  responsesResp.Moderation,
+		ServiceTier: responsesResp.ServiceTier,
 	}
 
 	reasonContent := responseReasoningSummaryText(&responsesResp)
+	choice := &relaymodel.TextResponseChoice{
+		Index: 0,
+		Message: relaymodel.Message{
+			Role:             relaymodel.RoleAssistant,
+			Content:          "",
+			ReasoningContent: reasonContent,
+		},
+		FinishReason: responseToChatFinishReason(&responsesResp),
+	}
 
-	var toolCallChoice *relaymodel.TextResponseChoice
+	var (
+		contentParts    []string
+		refusalParts    []string
+		contentLogprobs []relaymodel.ChatCompletionTokenLogprob
+		refusalLogprobs []relaymodel.ChatCompletionTokenLogprob
+	)
 
-	// Convert output items to choices
+	// Responses output items belong to one generation and therefore one Chat choice.
 	for _, outputItem := range responsesResp.Output {
 		switch outputItem.Type {
 		case "", relaymodel.InputItemTypeMessage:
-			role := outputItem.Role
-			if role == "" {
-				role = relaymodel.RoleAssistant
+			if outputItem.Role != "" {
+				choice.Message.Role = outputItem.Role
 			}
 
-			choice := relaymodel.TextResponseChoice{
-				Index: len(chatResp.Choices),
-				Message: relaymodel.Message{
-					Role:             role,
-					Content:          "",
-					ReasoningContent: reasonContent,
-				},
-			}
-
-			var contentParts []string
 			for _, content := range outputItem.Content {
-				if (content.Type == "text" || content.Type == "output_text") && content.Text != "" {
-					contentParts = append(contentParts, content.Text)
+				switch content.Type {
+				case "text", relaymodel.OutputContentTypeOutputText:
+					if content.Text != "" {
+						contentParts = append(contentParts, content.Text)
+					}
+
+					choice.Message.Annotations = append(
+						choice.Message.Annotations,
+						content.Annotations...,
+					)
+					contentLogprobs = append(contentLogprobs, content.Logprobs...)
+				case "refusal":
+					if content.Refusal != "" {
+						refusalParts = append(refusalParts, content.Refusal)
+					}
+
+					refusalLogprobs = append(refusalLogprobs, content.Logprobs...)
 				}
 			}
-
-			if len(contentParts) > 0 {
-				choice.Message.Content = strings.Join(contentParts, "\n")
-			}
-
-			choice.FinishReason = responseToChatFinishReason(&responsesResp)
-			chatResp.Choices = append(chatResp.Choices, &choice)
-			reasonContent = ""
 
 		case relaymodel.InputItemTypeFunctionCall:
 			toolCallID := outputItem.CallID
@@ -1412,28 +1565,14 @@ func ConvertResponsesToChatCompletionResponse(
 				toolCallID = outputItem.ID
 			}
 
-			if toolCallChoice == nil {
-				finishReason := responseToChatFinishReason(&responsesResp)
-				if finishReason == relaymodel.FinishReasonStop {
-					finishReason = relaymodel.FinishReasonToolCalls
-				}
-
-				toolCallChoice = &relaymodel.TextResponseChoice{
-					Index: len(chatResp.Choices),
-					Message: relaymodel.Message{
-						Role:             relaymodel.RoleAssistant,
-						ReasoningContent: reasonContent,
-					},
-					FinishReason: finishReason,
-				}
-				chatResp.Choices = append(chatResp.Choices, toolCallChoice)
-				reasonContent = ""
+			if choice.FinishReason == relaymodel.FinishReasonStop {
+				choice.FinishReason = relaymodel.FinishReasonToolCalls
 			}
 
-			toolCallChoice.Message.ToolCalls = append(
-				toolCallChoice.Message.ToolCalls,
+			choice.Message.ToolCalls = append(
+				choice.Message.ToolCalls,
 				relaymodel.ToolCall{
-					Index: len(toolCallChoice.Message.ToolCalls),
+					Index: len(choice.Message.ToolCalls),
 					ID:    toolCallID,
 					Type:  relaymodel.ToolChoiceTypeFunction,
 					Function: relaymodel.Function{
@@ -1448,17 +1587,22 @@ func ConvertResponsesToChatCompletionResponse(
 		}
 	}
 
-	if len(chatResp.Choices) == 0 {
-		chatResp.Choices = append(chatResp.Choices, &relaymodel.TextResponseChoice{
-			Index: 0,
-			Message: relaymodel.Message{
-				Role:             relaymodel.RoleAssistant,
-				Content:          "",
-				ReasoningContent: reasonContent,
-			},
-			FinishReason: responseToChatFinishReason(&responsesResp),
-		})
+	if len(contentParts) > 0 {
+		choice.Message.Content = strings.Join(contentParts, "\n")
 	}
+
+	if len(refusalParts) > 0 {
+		choice.Message.Refusal = strings.Join(refusalParts, "\n")
+	}
+
+	if len(contentLogprobs) > 0 || len(refusalLogprobs) > 0 {
+		choice.Logprobs = &relaymodel.ChoiceLogprobs{
+			Content: contentLogprobs,
+			Refusal: refusalLogprobs,
+		}
+	}
+
+	chatResp.Choices = append(chatResp.Choices, choice)
 
 	// Convert usage
 	if responsesResp.Usage != nil {
@@ -1668,6 +1812,8 @@ func ConvertResponsesToChatCompletionStreamResponse(
 			pendingInitialChunk = state.handleResponseCreated(&event)
 		case relaymodel.EventOutputTextDelta:
 			chatStreamResp = state.handleOutputTextDelta(&event)
+		case relaymodel.EventRefusalDelta:
+			chatStreamResp = state.handleRefusalDelta(&event)
 		case relaymodel.EventReasoningSummaryTextDelta:
 			chatStreamResp = state.handleReasoningSummaryTextDelta(&event)
 		case relaymodel.EventOutputItemAdded:

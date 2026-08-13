@@ -16,6 +16,7 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/gin-gonic/gin"
 	"github.com/labring/aiproxy/core/common"
+	commonimage "github.com/labring/aiproxy/core/common/image"
 	"github.com/labring/aiproxy/core/model"
 	"github.com/labring/aiproxy/core/relay/adaptor"
 	"github.com/labring/aiproxy/core/relay/meta"
@@ -59,6 +60,20 @@ type ParsePdfResponseData struct {
 	UID string `json:"uid"`
 }
 
+const (
+	StatusResponseDataStatusSuccess    = "success"
+	StatusResponseDataStatusReady      = "ready"
+	StatusResponseDataStatusProcessing = "processing"
+	StatusResponseDataStatusFailed     = "failed"
+	statusPollMaxAttempts              = 600
+)
+
+var statusPollInterval = time.Second
+
+func isSuccessfulResponseCode(code string) bool {
+	return code == "success" || code == "ok"
+}
+
 func HandleParsePdfResponse(
 	meta *meta.Meta,
 	c *gin.Context,
@@ -75,7 +90,7 @@ func HandleParsePdfResponse(
 		)
 	}
 
-	if response.Code != "success" {
+	if !isSuccessfulResponseCode(response.Code) {
 		return adaptor.DoResponseResult{}, relaymodel.WrapperOpenAIErrorWithMessage(
 			"parse pdf failed: "+response.Msg,
 			"parse_pdf_failed",
@@ -83,8 +98,17 @@ func HandleParsePdfResponse(
 		)
 	}
 
-	for {
-		status, err := GetStatus(context.Background(), meta, response.Data.UID)
+	if response.Data.UID == "" {
+		return adaptor.DoResponseResult{}, relaymodel.WrapperOpenAIErrorWithMessage(
+			"parse pdf failed: uid is empty",
+			"parse_pdf_failed",
+			http.StatusBadGateway,
+		)
+	}
+
+	ctx := c.Request.Context()
+	for attempt := range statusPollMaxAttempts {
+		status, err := GetStatus(ctx, meta, response.Data.UID)
 		if err != nil {
 			return adaptor.DoResponseResult{}, relaymodel.WrapperOpenAIErrorWithMessage(
 				"get status failed: "+err.Error(),
@@ -95,17 +119,49 @@ func HandleParsePdfResponse(
 
 		switch status.Status {
 		case StatusResponseDataStatusSuccess:
+			if status.Result == nil {
+				return adaptor.DoResponseResult{}, relaymodel.WrapperOpenAIErrorWithMessage(
+					"parse pdf failed: result is empty",
+					"parse_pdf_failed",
+					http.StatusBadGateway,
+				)
+			}
+
 			return handleParsePdfResponse(meta, c, status.Result)
-		case StatusResponseDataStatusProcessing:
-			time.Sleep(1 * time.Second)
+		case StatusResponseDataStatusReady, StatusResponseDataStatusProcessing:
+			if attempt == statusPollMaxAttempts-1 {
+				break
+			}
+
+			select {
+			case <-ctx.Done():
+				return adaptor.DoResponseResult{}, relaymodel.WrapperOpenAIErrorWithMessage(
+					"get status canceled: "+ctx.Err().Error(),
+					"get_status_canceled",
+					http.StatusRequestTimeout,
+				)
+			case <-time.After(statusPollInterval):
+			}
 		case StatusResponseDataStatusFailed:
 			return adaptor.DoResponseResult{}, relaymodel.WrapperOpenAIErrorWithMessage(
 				"parse pdf failed: "+status.Detail,
 				"parse_pdf_failed",
 				http.StatusBadRequest,
 			)
+		default:
+			return adaptor.DoResponseResult{}, relaymodel.WrapperOpenAIErrorWithMessage(
+				"get status failed: unknown status "+status.Status,
+				"get_status_failed",
+				http.StatusBadGateway,
+			)
 		}
 	}
+
+	return adaptor.DoResponseResult{}, relaymodel.WrapperOpenAIErrorWithMessage(
+		"get status failed: process timeout",
+		"get_status_timeout",
+		http.StatusGatewayTimeout,
+	)
 }
 
 // Start of Selection
@@ -121,9 +177,94 @@ var (
 	htmlImageRegex = regexp.MustCompile(`<img\s+src="([^"]+)"(?:\s*\?[^>]*)?(?:\s*\/>|>)`)
 	imageRegex     = regexp.MustCompile(`!\[(.*?)\]\((http[^)]+)\)`)
 
+	inlineMathDelimiterRegex = regexp.MustCompile(`\\[\(\)]`)
+	blockMathDelimiterRegex  = regexp.MustCompile(`\\[\[\]]`)
+	mathTagRegex             = regexp.MustCompile(`\$(.+?)\s+\\tag\{(.+?)\}\$`)
+	textSubscriptRegex       = regexp.MustCompile(`\\text\{([^}]*?)(\b\w+)_(\w+\b)([^}]*?)\}`)
+	simpleFootnoteRefRegex   = regexp.MustCompile(`\$\s*\{\}\^\{(\d+)\}\s*\$`)
+
 	mediaCommentRegex    = regexp.MustCompile(`<!-- Media -->`)
 	footnoteCommentRegex = regexp.MustCompile(`<!-- Footnote -->`)
+	meanlessCommentRegex = regexp.MustCompile(`(?s)<!-- Meanless:.*?-->`)
+	figureTextRegex      = regexp.MustCompile(`(?s)<!-- figureText:\s*(.*?)\s*-->`)
+	figureLineBreakRegex = regexp.MustCompile(`(?i)<br\s*/?>`)
+	footnoteSectionRegex = regexp.MustCompile(
+		`(?s)(?:^|\n)\s*---\s*<!-- Footnote -->\s*(.*?)\s*<!-- Footnote -->\s*---\s*(?:\n|$)`,
+	)
+	footnoteBlockRegex    = regexp.MustCompile(`(?s)<!-- Footnote -->\s*(.*?)\s*<!-- Footnote -->`)
+	plainFootnoteNumRegex = regexp.MustCompile(`^(\d+)\s+`)
+	mathFootnoteNumRegex  = regexp.MustCompile(`^\\\(\s*\{\}\^\{(\d+)\}\s*\\\)\s*`)
+	excessBlankLinesRegex = regexp.MustCompile(`\n[ \t]*\n(?:[ \t]*\n)+`)
 )
+
+// CleanMarkdown applies the text-only normalization required by Doc2X's
+// Markdown output. Image downloads and HTML table conversion remain separate
+// operations because they need request context and network access respectively.
+func CleanMarkdown(content string) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = footnoteSectionRegex.ReplaceAllStringFunc(content, func(match string) string {
+		parts := footnoteSectionRegex.FindStringSubmatch(match)
+		return formatFootnote(parts[1])
+	})
+	content = footnoteBlockRegex.ReplaceAllStringFunc(content, func(match string) string {
+		parts := footnoteBlockRegex.FindStringSubmatch(match)
+		return formatFootnote(parts[1])
+	})
+	content = figureTextRegex.ReplaceAllStringFunc(content, func(match string) string {
+		parts := figureTextRegex.FindStringSubmatch(match)
+		figureText := figureLineBreakRegex.ReplaceAllString(parts[1], "\n")
+		return "\n\n**图内文字**\n\n" + strings.TrimSpace(figureText) + "\n\n"
+	})
+	content = inlineMathDelimiterRegex.ReplaceAllString(content, "$")
+	content = blockMathDelimiterRegex.ReplaceAllStringFunc(content, func(string) string {
+		return "$$"
+	})
+	content = mathTagRegex.ReplaceAllStringFunc(content, func(match string) string {
+		parts := mathTagRegex.FindStringSubmatch(match)
+		return "$$" + parts[1] + " \\qquad \\qquad (" + parts[2] + ")$$"
+	})
+	content = textSubscriptRegex.ReplaceAllStringFunc(content, func(match string) string {
+		parts := textSubscriptRegex.FindStringSubmatch(match)
+		return "\\text{" + parts[1] + parts[2] + "\\_" + parts[3] + parts[4] + "}"
+	})
+	content = simpleFootnoteRefRegex.ReplaceAllString(content, "[^$1]")
+	content = mediaCommentRegex.ReplaceAllString(content, "")
+	content = footnoteCommentRegex.ReplaceAllString(content, "")
+	content = meanlessCommentRegex.ReplaceAllString(content, "")
+	content = excessBlankLinesRegex.ReplaceAllString(content, "\n\n")
+
+	return strings.TrimSpace(content)
+}
+
+func formatFootnote(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+
+	var number string
+	if parts := plainFootnoteNumRegex.FindStringSubmatch(body); len(parts) > 1 {
+		number = parts[1]
+		body = plainFootnoteNumRegex.ReplaceAllString(body, "")
+	} else if parts := mathFootnoteNumRegex.FindStringSubmatch(body); len(parts) > 1 {
+		number = parts[1]
+		body = mathFootnoteNumRegex.ReplaceAllString(body, "")
+	}
+
+	body = strings.TrimSpace(body)
+	if number == "" {
+		return "\n\n" + body + "\n\n"
+	}
+
+	lines := strings.Split(body, "\n")
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) != "" {
+			lines[i] = "    " + lines[i]
+		}
+	}
+
+	return "\n\n[^" + number + "]: " + strings.Join(lines, "\n") + "\n\n"
+}
 
 func HTMLTable2Md(content string) string {
 	return tableRegex.ReplaceAllStringFunc(content, func(htmlTable string) string {
@@ -232,6 +373,7 @@ func InlineMdImage(ctx context.Context, m *meta.Meta, text string) string {
 		resultText strings.Builder
 		wg         sync.WaitGroup
 		mutex      sync.Mutex
+		slots      = make(chan struct{}, 8)
 	)
 
 	type imageInfo struct {
@@ -263,6 +405,15 @@ func InlineMdImage(ctx context.Context, m *meta.Meta, text string) string {
 			defer wg.Done()
 
 			info := &imageInfos[index]
+			select {
+			case slots <- struct{}{}:
+				defer func() { <-slots }()
+			case <-ctx.Done():
+				mutex.Lock()
+				info.replacement = text[info.startPos:info.endPos]
+				mutex.Unlock()
+				return
+			}
 
 			replacement, err := imageURL2MdBase64(ctx, m, info.url, info.altText)
 			if err != nil {
@@ -352,12 +503,21 @@ func imageURL2MdBase64(ctx context.Context, m *meta.Meta, url, altText string) (
 
 	defer resp.Body.Close()
 
-	data, err := common.GetResponseBody(resp)
+	data, err := common.GetResponseBodyLimit(resp, commonimage.MaxImageSize)
 	if err != nil {
 		return "", fmt.Errorf("failed to read image data: %w", err)
 	}
 
-	mime := resp.Header.Get("Content-Type")
+	mime := commonimage.TrimImageContentType(resp.Header.Get("Content-Type"))
+	if !commonimage.IsImageURL(mime) {
+		detectedMime := http.DetectContentType(data)
+		if !commonimage.IsImageURL(detectedMime) {
+			return "", fmt.Errorf("downloaded content is not an image: %s", detectedMime)
+		}
+
+		mime = detectedMime
+	}
+
 	if mime == "" {
 		mime = inferMimeType(url)
 	}
@@ -389,13 +549,15 @@ func inferMimeType(u string) string {
 }
 
 func handleConvertPdfToMd(ctx context.Context, m *meta.Meta, str string) string {
-	result := InlineMdImage(ctx, m, str)
+	result := CleanMarkdown(str)
+	result = InlineMdImage(ctx, m, result)
 	result = HTMLTable2Md(result)
 
-	result = mediaCommentRegex.ReplaceAllString(result, "")
-	result = footnoteCommentRegex.ReplaceAllString(result, "")
-
 	return result
+}
+
+func joinMarkdownPages(pages []string) string {
+	return strings.Join(pages, "\n\n")
 }
 
 func handleParsePdfResponse(
@@ -425,11 +587,8 @@ func handleParsePdfResponse(
 		})
 	default:
 		builder := strings.Builder{}
-		builder.Grow(totalLength)
-
-		for _, md := range mds {
-			builder.WriteString(md)
-		}
+		builder.Grow(totalLength + max(0, len(mds)-1)*2)
+		builder.WriteString(joinMarkdownPages(mds))
 
 		result := handleConvertPdfToMd(c.Request.Context(), meta, builder.String())
 		c.JSON(http.StatusOK, relaymodel.ParsePdfResponse{
@@ -449,12 +608,6 @@ type StatusResponse struct {
 	Msg  string              `json:"msg"`
 	Data *StatusResponseData `json:"data"`
 }
-
-const (
-	StatusResponseDataStatusSuccess    = "success"
-	StatusResponseDataStatusProcessing = "processing"
-	StatusResponseDataStatusFailed     = "failed"
-)
 
 type StatusResponseData struct {
 	Progress int                       `json:"progress"`
@@ -499,8 +652,12 @@ func GetStatus(ctx context.Context, meta *meta.Meta, uid string) (*StatusRespons
 		return nil, err
 	}
 
-	if response.Code != "success" {
+	if !isSuccessfulResponseCode(response.Code) {
 		return nil, errors.New("get status failed: " + response.Msg)
+	}
+
+	if response.Data == nil {
+		return nil, errors.New("get status failed: response data is empty")
 	}
 
 	return response.Data, nil

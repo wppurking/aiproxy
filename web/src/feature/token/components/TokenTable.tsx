@@ -32,6 +32,7 @@ import { GroupDialog } from '@/feature/group/components/GroupDialog'
 import { useRef } from 'react'
 import { useBatchGroupTokenMetrics } from '@/feature/monitor/runtime-hooks'
 import { format } from 'date-fns'
+import { writeTextToClipboard } from '@/lib/clipboard'
 
 // 遮蔽 API Key，只显示前缀和最后4位
 const maskApiKey = (key: string): string => {
@@ -191,7 +192,7 @@ export function TokenTable() {
 
     // 复制Token到剪贴板
     const copyToClipboard = (text: string) => {
-        navigator.clipboard.writeText(text).then(() => {
+        writeTextToClipboard(text).then(() => {
             toast.success(t('common.copied'))
         }).catch(() => {
             toast.error(t('common.copyFailed'))

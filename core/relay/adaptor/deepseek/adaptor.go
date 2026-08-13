@@ -40,10 +40,27 @@ func (a *Adaptor) DefaultBaseURL() string {
 func (a *Adaptor) SupportMode(mt *meta.Meta) bool {
 	m := adaptor.ModeFromMeta(mt)
 
+	if m == mode.Responses {
+		return supportsResponsesModel(mt)
+	}
+
 	return m == mode.ChatCompletions ||
 		m == mode.Completions ||
 		m == mode.Anthropic ||
 		m == mode.Gemini
+}
+
+func supportsResponsesModel(mt *meta.Meta) bool {
+	if mt == nil {
+		return false
+	}
+
+	modelName := strings.ToLower(mt.ActualModel)
+	if modelName == "" {
+		modelName = strings.ToLower(mt.OriginModel)
+	}
+
+	return modelName == "deepseek-v4-flash"
 }
 
 func (a *Adaptor) SetupRequestHeader(
@@ -145,8 +162,9 @@ func (a *Adaptor) DoResponse(
 
 func (a *Adaptor) Metadata() adaptor.Metadata {
 	return adaptor.Metadata{
-		Readme: "DeepSeek API\nOpenAI-compatible chat and completions endpoints\nSupports native Anthropic-compatible endpoint and Gemini-compatible request conversion",
-		Models: ModelList,
+		Readme:       "DeepSeek API\nOpenAI-compatible chat and completions endpoints\nSupports native Responses API for deepseek-v4-flash\nSupports native Anthropic-compatible endpoint and Gemini-compatible request conversion",
+		ConfigSchema: openai.ConfigSchema(),
+		Models:       ModelList,
 	}
 }
 

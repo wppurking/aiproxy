@@ -372,6 +372,7 @@ func TestConvertChatCompletionToResponsesRequest(t *testing.T) {
 						Function: relaymodel.Function{
 							Name:        "get_weather",
 							Description: "Get weather information",
+							Strict:      new(true),
 							Parameters: map[string]any{
 								"type": "object",
 								"properties": map[string]any{
@@ -389,7 +390,47 @@ func TestConvertChatCompletionToResponsesRequest(t *testing.T) {
 				t.Helper()
 				require.Len(t, responsesReq.Tools, 1)
 				assert.Equal(t, "get_weather", responsesReq.Tools[0].Name)
+				require.NotNil(t, responsesReq.Tools[0].Strict)
+				assert.True(t, *responsesReq.Tools[0].Strict)
 				assert.Equal(t, "auto", responsesReq.ToolChoice)
+			},
+		},
+		{
+			name: "flattened tool fields take precedence",
+			inputRequest: relaymodel.GeneralOpenAIRequest{
+				Model: "gpt-5.6",
+				Messages: []relaymodel.Message{
+					{Role: "user", Content: "Find the required tool"},
+				},
+				Tools: []relaymodel.Tool{
+					{
+						Type:         "function",
+						Name:         "top_level_tool",
+						Description:  "Top-level description",
+						Parameters:   map[string]any{"type": "object"},
+						Strict:       new(true),
+						DeferLoading: new(true),
+						Function: relaymodel.Function{
+							Name:        "nested_tool",
+							Description: "Nested description",
+							Parameters:  map[string]any{"type": "string"},
+							Strict:      new(false),
+						},
+					},
+				},
+			},
+			checkFunc: func(t *testing.T, responsesReq relaymodel.CreateResponseRequest) {
+				t.Helper()
+				require.Len(t, responsesReq.Tools, 1)
+
+				tool := responsesReq.Tools[0]
+				assert.Equal(t, "top_level_tool", tool.Name)
+				assert.Equal(t, "Top-level description", tool.Description)
+				assert.Equal(t, map[string]any{"type": "object"}, tool.Parameters)
+				require.NotNil(t, tool.Strict)
+				assert.True(t, *tool.Strict)
+				require.NotNil(t, tool.DeferLoading)
+				assert.True(t, *tool.DeferLoading)
 			},
 		},
 		{
@@ -649,7 +690,55 @@ func TestConvertChatCompletionToResponsesRequest(t *testing.T) {
 	}
 }
 
-func TestConvertChatCompletionToResponsesRequestAcceptsMultipleChoices(t *testing.T) {
+func TestConvertChatCompletionToResponsesRequestPreservesClientToolSearch(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{
+			"model":"gpt-5.6",
+			"messages":[{"role":"user","content":"Find the required tool"}],
+			"tools":[{
+				"type":"tool_search",
+				"execution":"client",
+				"description":"Search deferred tool metadata",
+				"parameters":{
+					"type":"object",
+					"properties":{"query":{"type":"string"}},
+					"required":["query"],
+					"additionalProperties":false
+				}
+			}]
+		}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+
+	result, err := openai.ConvertChatCompletionToResponsesRequest(&meta.Meta{
+		ActualModel: "gpt-5.6",
+	}, req)
+	require.NoError(t, err)
+
+	var responsesReq relaymodel.CreateResponseRequest
+	require.NoError(t, json.NewDecoder(result.Body).Decode(&responsesReq))
+	require.Len(t, responsesReq.Tools, 1)
+
+	tool := responsesReq.Tools[0]
+	assert.Equal(t, "tool_search", tool.Type)
+	assert.Equal(t, "client", tool.Execution)
+	assert.Equal(t, "Search deferred tool metadata", tool.Description)
+	assert.Equal(t, map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"query": map[string]any{"type": "string"},
+		},
+		"required":             []any{"query"},
+		"additionalProperties": false,
+	}, tool.Parameters)
+}
+
+func TestConvertChatCompletionToResponsesRequestRejectsMultipleChoices(t *testing.T) {
 	inputRequest := relaymodel.GeneralOpenAIRequest{
 		Model: "gpt-5-codex",
 		Messages: []relaymodel.Message{
@@ -671,27 +760,89 @@ func TestConvertChatCompletionToResponsesRequestAcceptsMultipleChoices(t *testin
 		ActualModel: inputRequest.Model,
 	}
 
-	result, err := openai.ConvertChatCompletionToResponsesRequest(m, req)
-	require.NoError(t, err)
+	_, err = openai.ConvertChatCompletionToResponsesRequest(m, req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "n must be 1")
+}
 
-	body, err := io.ReadAll(result.Body)
-	require.NoError(t, err)
+func TestConvertChatCompletionToResponsesRequestPreservesDirectFields(t *testing.T) {
+	req := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{
+			"model":"gpt-5.6",
+			"messages":[
+				{"role":"assistant","content":"Prior answer","refusal":"Policy refusal"},
+				{"role":"user","content":[{"type":"text","text":"Hello","prompt_cache_breakpoint":{"mode":"explicit"}}]}
+			],
+			"safety_identifier":"user_hash",
+			"prompt_cache_options":{"mode":"explicit","ttl":"30m"},
+			"moderation":{"model":"omni-moderation-latest","policy":{"input":{"mode":"score"}}},
+			"verbosity":"high",
+			"stream":true,
+			"stream_options":{"include_usage":true,"include_obfuscation":false}
+		}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
 
-	assert.NotContains(t, string(body), `"n"`)
+	result, err := openai.ConvertChatCompletionToResponsesRequest(&meta.Meta{
+		ActualModel: "gpt-5.6",
+	}, req)
+	require.NoError(t, err)
 
 	var responsesReq relaymodel.CreateResponseRequest
+	require.NoError(t, json.NewDecoder(result.Body).Decode(&responsesReq))
 
-	err = json.Unmarshal(body, &responsesReq)
-	require.NoError(t, err)
+	require.NotNil(t, responsesReq.SafetyIdentifier)
+	assert.Equal(t, "user_hash", *responsesReq.SafetyIdentifier)
+	require.NotNil(t, responsesReq.PromptCacheOptions)
+	assert.Equal(t, "explicit", responsesReq.PromptCacheOptions.Mode)
+	assert.Equal(t, "30m", responsesReq.PromptCacheOptions.TTL)
+	assert.Equal(t, map[string]any{
+		"model": "omni-moderation-latest",
+		"policy": map[string]any{
+			"input": map[string]any{"mode": "score"},
+		},
+	}, responsesReq.Moderation)
+	require.NotNil(t, responsesReq.Text)
+	assert.Equal(t, "text", responsesReq.Text.Format.Type)
+	assert.Equal(t, "high", responsesReq.Text.Verbosity)
+	require.NotNil(t, responsesReq.StreamOptions)
+	require.NotNil(t, responsesReq.StreamOptions.IncludeObfuscation)
+	assert.False(t, *responsesReq.StreamOptions.IncludeObfuscation)
+	require.NotNil(t, responsesReq.Store)
+	assert.False(t, *responsesReq.Store)
 
-	assert.Equal(t, inputRequest.Model, responsesReq.Model)
-	assert.Equal(t, false, *responsesReq.Store)
+	items, ok := responsesReq.Input.([]any)
+	require.True(t, ok)
+	require.Len(t, items, 2)
+	assistantItem, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assistantContent, ok := assistantItem["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, assistantContent, 2)
+	refusalContent, ok := assistantContent[1].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "refusal", refusalContent["type"])
+	assert.Equal(t, "Policy refusal", refusalContent["refusal"])
+
+	userItem, ok := items[1].(map[string]any)
+	require.True(t, ok)
+	userContent, ok := userItem["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, userContent, 1)
+	userTextContent, ok := userContent[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, map[string]any{"mode": "explicit"},
+		userTextContent["prompt_cache_breakpoint"])
 }
 
 func TestConvertChatCompletionToResponsesRequestFlattensJSONSchemaTextFormat(t *testing.T) {
 	strict := true
 	inputRequest := relaymodel.GeneralOpenAIRequest{
-		Model: "gpt-5-codex",
+		Model:     "gpt-5-codex",
+		Verbosity: "low",
 		Messages: []relaymodel.Message{
 			{Role: "user", Content: "Return JSON"},
 		},
@@ -746,6 +897,7 @@ func TestConvertChatCompletionToResponsesRequestFlattensJSONSchemaTextFormat(t *
 	assert.Equal(t, "Answer payload", format["description"])
 	assert.Equal(t, true, format["strict"])
 	assert.NotNil(t, format["schema"])
+	assert.Equal(t, "low", text["verbosity"])
 }
 
 func TestConvertResponsesToChatCompletionResponse(t *testing.T) {
@@ -895,13 +1047,117 @@ func TestConvertResponsesToChatCompletionResponse(t *testing.T) {
 			},
 			checkFunc: func(t *testing.T, chatResp relaymodel.TextResponse) {
 				t.Helper()
-				require.Len(t, chatResp.Choices, 2)
+				require.Len(t, chatResp.Choices, 1)
 				assert.Equal(
 					t,
 					"Need compare options.",
 					chatResp.Choices[0].Message.ReasoningContent,
 				)
-				assert.Empty(t, chatResp.Choices[1].Message.ReasoningContent)
+				assert.Equal(t, "Option A\nOption B", chatResp.Choices[0].Message.Content)
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "response fields and output items are preserved in one choice",
+			responsesResp: relaymodel.Response{
+				ID:          "resp_fields",
+				Model:       "gpt-5.6",
+				Status:      relaymodel.ResponseStatusCompleted,
+				CreatedAt:   1781355958,
+				ServiceTier: new("priority"),
+				Moderation: map[string]any{
+					"input": map[string]any{"type": "moderation_result", "flagged": false},
+				},
+				Output: []relaymodel.OutputItem{
+					{
+						Type: relaymodel.InputItemTypeMessage,
+						Content: []relaymodel.OutputContent{
+							{
+								Type:        relaymodel.OutputContentTypeOutputText,
+								Text:        "Partial answer",
+								Annotations: []any{map[string]any{"type": "url_citation"}},
+								Logprobs: []relaymodel.ChatCompletionTokenLogprob{
+									{Token: "Partial", Bytes: []int{80}, Logprob: -0.1},
+								},
+							},
+							{
+								Type:    "refusal",
+								Refusal: "Restricted detail",
+								Logprobs: []relaymodel.ChatCompletionTokenLogprob{
+									{Token: "Restricted", Bytes: []int{82}, Logprob: -0.2},
+								},
+							},
+						},
+					},
+					{
+						ID:        "fc_123",
+						Type:      relaymodel.InputItemTypeFunctionCall,
+						CallID:    "call_123",
+						Name:      "lookup",
+						Arguments: `{"id":1}`,
+					},
+				},
+				Usage: &relaymodel.ResponseUsage{InputTokens: 4, OutputTokens: 2, TotalTokens: 6},
+			},
+			checkFunc: func(t *testing.T, chatResp relaymodel.TextResponse) {
+				t.Helper()
+				require.Len(t, chatResp.Choices, 1)
+				choice := chatResp.Choices[0]
+				assert.Equal(t, "Partial answer", choice.Message.Content)
+				assert.Equal(t, "Restricted detail", choice.Message.Refusal)
+				require.Len(t, choice.Message.Annotations, 1)
+				require.NotNil(t, choice.Logprobs)
+				require.Len(t, choice.Logprobs.Content, 1)
+				assert.Equal(t, "Partial", choice.Logprobs.Content[0].Token)
+				require.Len(t, choice.Logprobs.Refusal, 1)
+				assert.Equal(t, "Restricted", choice.Logprobs.Refusal[0].Token)
+				require.Len(t, choice.Message.ToolCalls, 1)
+				assert.Equal(t, relaymodel.FinishReasonToolCalls, choice.FinishReason)
+				require.NotNil(t, chatResp.ServiceTier)
+				assert.Equal(t, "priority", *chatResp.ServiceTier)
+				moderation, ok := chatResp.Moderation.(map[string]any)
+				require.True(t, ok)
+				moderationInput, ok := moderation["input"].(map[string]any)
+				require.True(t, ok)
+				flagged, ok := moderationInput["flagged"].(bool)
+				require.True(t, ok)
+				assert.False(t, flagged)
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "refusal-only response preserves refusal logprobs",
+			responsesResp: relaymodel.Response{
+				ID:        "resp_refusal_logprobs",
+				Model:     "gpt-5.6",
+				Status:    relaymodel.ResponseStatusCompleted,
+				CreatedAt: 1781355958,
+				Output: []relaymodel.OutputItem{
+					{
+						Type: relaymodel.InputItemTypeMessage,
+						Content: []relaymodel.OutputContent{
+							{
+								Type:    "refusal",
+								Refusal: "Request refused",
+								Logprobs: []relaymodel.ChatCompletionTokenLogprob{
+									{Token: "Request", Bytes: []int{82}, Logprob: -0.3},
+								},
+							},
+						},
+					},
+				},
+				Usage: &relaymodel.ResponseUsage{InputTokens: 2, OutputTokens: 1, TotalTokens: 3},
+			},
+			checkFunc: func(t *testing.T, chatResp relaymodel.TextResponse) {
+				t.Helper()
+				require.Len(t, chatResp.Choices, 1)
+				choice := chatResp.Choices[0]
+				assert.Equal(t, "", choice.Message.Content)
+				assert.Equal(t, "Request refused", choice.Message.Refusal)
+				require.NotNil(t, choice.Logprobs)
+				assert.Empty(t, choice.Logprobs.Content)
+				require.Len(t, choice.Logprobs.Refusal, 1)
+				assert.Equal(t, "Request", choice.Logprobs.Refusal[0].Token)
 			},
 			expectedStatus: http.StatusOK,
 		},
@@ -1200,6 +1456,70 @@ func TestConvertResponsesToChatCompletionStreamResponseSkipsOutputItemDoneConten
 		strings.Count(w.Body.String(), "Hello! What would you like to discuss or work on?"),
 	)
 	assert.Equal(t, 1, strings.Count(w.Body.String(), "data: [DONE]"))
+}
+
+func TestConvertResponsesToChatCompletionStreamResponsePreservesResponseFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	stream := strings.Join([]string{
+		`data: {"type":"response.created","obfuscation":"created-pad","response":{"id":"resp_fields","object":"response","created_at":1780731105,"status":"in_progress","model":"gpt-5.6","service_tier":"priority","output":[]}}`,
+		"",
+		`data: {"type":"response.output_text.delta","delta":"Hello","obfuscation":"text-pad","logprobs":[{"token":"Hello","bytes":[72],"logprob":-0.1,"top_logprobs":[]}]}`,
+		"",
+		`data: {"type":"response.refusal.delta","delta":"Restricted","obfuscation":"refusal-pad","logprobs":[{"token":"Restricted","bytes":[82],"logprob":-0.2,"top_logprobs":[]}]}`,
+		"",
+		`data: {"type":"response.completed","obfuscation":"completed-pad","response":{"id":"resp_fields","object":"response","created_at":1780731105,"status":"completed","model":"gpt-5.6","service_tier":"priority","moderation":{"input":{"type":"moderation_result","flagged":false}},"output":[],"usage":{"input_tokens":2,"output_tokens":2,"total_tokens":4}}}`,
+		"",
+	}, "\n")
+
+	httpResp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       &mockReadCloser{Reader: bytes.NewReader([]byte(stream))},
+		Header:     make(http.Header),
+	}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		"/v1/chat/completions",
+		nil,
+	)
+
+	_, err := openai.ConvertResponsesToChatCompletionStreamResponse(&meta.Meta{
+		ActualModel: "gpt-5.6",
+	}, c, httpResp)
+	require.Nil(t, err)
+
+	chunks := collectChatCompletionStreamChunks(t, w.Body.String())
+	require.Len(t, chunks, 4)
+
+	for _, chunk := range chunks {
+		require.NotNil(t, chunk.ServiceTier)
+		assert.Equal(t, "priority", *chunk.ServiceTier)
+	}
+
+	assert.Equal(t, "created-pad", chunks[0].Obfuscation)
+	assert.Equal(t, "text-pad", chunks[1].Obfuscation)
+	assert.Equal(t, "refusal-pad", chunks[2].Obfuscation)
+	assert.Equal(t, "completed-pad", chunks[3].Obfuscation)
+
+	require.NotNil(t, chunks[1].Choices[0].Logprobs)
+	require.Len(t, chunks[1].Choices[0].Logprobs.Content, 1)
+	assert.Equal(t, "Hello", chunks[1].Choices[0].Logprobs.Content[0].Token)
+	assert.Equal(t, "Restricted", chunks[2].Choices[0].Delta.Refusal)
+	require.NotNil(t, chunks[2].Choices[0].Logprobs)
+	require.Len(t, chunks[2].Choices[0].Logprobs.Refusal, 1)
+	assert.Equal(t, "Restricted", chunks[2].Choices[0].Logprobs.Refusal[0].Token)
+	require.NotNil(t, chunks[3].Usage)
+	assert.Equal(t, int64(4), chunks[3].Usage.TotalTokens)
+	moderation, ok := chunks[3].Moderation.(map[string]any)
+	require.True(t, ok)
+	moderationInput, ok := moderation["input"].(map[string]any)
+	require.True(t, ok)
+	flagged, ok := moderationInput["flagged"].(bool)
+	require.True(t, ok)
+	assert.False(t, flagged)
 }
 
 func TestConvertResponsesToChatCompletionStreamResponseReturnsErrorBeforeDownstreamWrite(

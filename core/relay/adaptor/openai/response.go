@@ -21,8 +21,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var responseStreamInitialBufferTimeout = 2 * time.Second
-
 // ConvertResponseRequest converts a response creation request
 func ConvertResponseRequest(
 	meta *meta.Meta,
@@ -193,6 +191,22 @@ func ResponseStreamHandler(
 	c *gin.Context,
 	resp *http.Response,
 ) (adaptor.DoResponseResult, adaptor.Error) {
+	return responseStreamHandler(
+		meta,
+		store,
+		c,
+		resp,
+		defaultConfig().responsesFirstEventTimeout(),
+	)
+}
+
+func responseStreamHandler(
+	meta *meta.Meta,
+	store adaptor.Store,
+	c *gin.Context,
+	resp *http.Response,
+	firstEventTimeout time.Duration,
+) (adaptor.DoResponseResult, adaptor.Error) {
 	if !adaptor.IsSuccessfulResponseStatus(mode.Responses, resp.StatusCode) {
 		return adaptor.DoResponseResult{}, ErrorHanlder(resp)
 	}
@@ -305,7 +319,7 @@ readLoop:
 			pendingEvents = append(pendingEvents, append([]byte(nil), data...))
 
 			if bufferTimer == nil {
-				bufferTimer = time.NewTimer(responseStreamInitialBufferTimeout)
+				bufferTimer = time.NewTimer(firstEventTimeout)
 			}
 
 			continue

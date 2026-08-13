@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useGroupTokenMetrics } from '@/feature/monitor/runtime-hooks'
 import { format } from 'date-fns'
+import { writeTextToClipboard } from '@/lib/clipboard'
 
 // Mask API key - show prefix and last 4 chars
 const maskApiKey = (key: string): string => {
@@ -168,7 +169,7 @@ export function GroupTokensTab({ groupId, onNavigateDashboard }: GroupTokensTabP
     }
 
     const copyToClipboard = (text: string) => {
-        navigator.clipboard.writeText(text).then(() => {
+        writeTextToClipboard(text).then(() => {
             toast.success(t('common.copied'))
         }).catch(() => {
             toast.error(t('common.copyFailed'))

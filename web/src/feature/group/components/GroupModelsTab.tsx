@@ -25,6 +25,7 @@ import { PriceDisplay } from '@/components/price/PriceDisplay'
 import { toast } from 'sonner'
 import { Copy, Search } from 'lucide-react'
 import { useGroupModelMetrics } from '@/feature/monitor/runtime-hooks'
+import { writeTextToClipboard } from '@/lib/clipboard'
 
 interface GroupModelsTabProps {
     groupId: string
@@ -79,7 +80,7 @@ export function GroupModelsTab({ groupId }: GroupModelsTabProps) {
     }, [models, searchKeyword, ownerFilter])
     const { data: runtimeMetrics } = useGroupModelMetrics(groupId, !!groupId && filteredModels.length > 0)
     const copyToClipboard = (text: string) => {
-        navigator.clipboard.writeText(text).then(() => {
+        writeTextToClipboard(text).then(() => {
             toast.success(t('common.copied'))
         }).catch(() => {
             toast.error(t('common.copyFailed'))

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/labring/aiproxy/core/model"
 	"github.com/labring/aiproxy/core/relay/adaptor"
 	"github.com/labring/aiproxy/core/relay/meta"
+	"github.com/labring/aiproxy/core/relay/mode"
 	relaymodel "github.com/labring/aiproxy/core/relay/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,8 +25,6 @@ type responseTestStore struct {
 	saved           []adaptor.StoreCache
 	savedIfNotExist []adaptor.StoreCache
 }
-
-var responseStreamInitialBufferTimeoutTestMu sync.Mutex
 
 func (s *responseTestStore) GetStore(string, int, string) (adaptor.StoreCache, error) {
 	return adaptor.StoreCache{}, nil
@@ -353,16 +351,7 @@ func TestResponseStreamHandlerAcceptsObjectFunctionCallArguments(t *testing.T) {
 }
 
 func TestResponseStreamHandlerStartsBufferTimeoutFromFirstDelayedEvent(t *testing.T) {
-	responseStreamInitialBufferTimeoutTestMu.Lock()
-	defer responseStreamInitialBufferTimeoutTestMu.Unlock()
-
 	gin.SetMode(gin.TestMode)
-
-	oldTimeout := responseStreamInitialBufferTimeout
-	responseStreamInitialBufferTimeout = time.Millisecond
-	t.Cleanup(func() {
-		responseStreamInitialBufferTimeout = oldTimeout
-	})
 
 	reader, writer := io.Pipe()
 	defer writer.Close()
@@ -399,11 +388,70 @@ func TestResponseStreamHandlerStartsBufferTimeoutFromFirstDelayedEvent(t *testin
 		Header:     make(http.Header),
 	}
 
-	result, err := ResponseStreamHandler(&meta.Meta{}, &responseTestStore{}, c, resp)
+	result, err := responseStreamHandler(
+		&meta.Meta{},
+		&responseTestStore{},
+		c,
+		resp,
+		time.Millisecond,
+	)
 	require.Nil(t, err)
 	assert.Equal(t, "resp_timeout", result.UpstreamID)
 	assert.Contains(t, recorder.Body.String(), "response.in_progress")
 	assert.Contains(t, recorder.Body.String(), "response.completed")
+}
+
+func TestAdaptorDoResponseUsesResponsesFirstEventTimeout(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	reader, writer := io.Pipe()
+	defer writer.Close()
+
+	go func() {
+		_, _ = writer.Write([]byte(strings.Join([]string{
+			"event: response.created",
+			"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_configured_timeout\",\"object\":\"response\",\"created_at\":1,\"status\":\"in_progress\",\"model\":\"gpt-5.4\",\"output\":[],\"parallel_tool_calls\":true,\"store\":false}}",
+			"",
+		}, "\n")))
+
+		time.Sleep(20 * time.Millisecond)
+
+		_, _ = writer.Write([]byte(strings.Join([]string{
+			"event: error",
+			"data: {\"type\":\"error\",\"error\":{\"type\":\"server_error\",\"code\":\"server_error\",\"message\":\"stream failed\"}}",
+			"",
+		}, "\n")))
+		_ = writer.Close()
+	}()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		"/v1/responses",
+		nil,
+	)
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       reader,
+		Header: http.Header{
+			"Content-Type": {"text/event-stream"},
+		},
+	}
+	m := &meta.Meta{
+		Mode: mode.Responses,
+		ChannelConfigs: model.ChannelConfigs{
+			"responses_first_event_timeout": 0,
+		},
+	}
+
+	result, err := (&Adaptor{}).DoResponse(m, &responseTestStore{}, c, resp)
+	require.Nil(t, err)
+	assert.Equal(t, "resp_configured_timeout", result.UpstreamID)
+	assert.Contains(t, recorder.Body.String(), "response.created")
+	assert.Contains(t, recorder.Body.String(), "stream failed")
 }
 
 func TestResponseHandlerWebSearchCountFromToolUsage(t *testing.T) {

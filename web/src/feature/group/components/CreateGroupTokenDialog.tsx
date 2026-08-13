@@ -23,6 +23,7 @@ import { Loader2 } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { tokenApi } from '@/api/token'
 import { toast } from 'sonner'
+import { writeTextToClipboard } from '@/lib/clipboard'
 
 interface CreateGroupTokenDialogProps {
     open: boolean
@@ -59,8 +60,10 @@ export function CreateGroupTokenDialog({
             queryClient.invalidateQueries({ queryKey: ['groups'] })
             toast.success(t('common.success'))
             if (data?.key) {
-                navigator.clipboard.writeText(data.key).then(() => {
+                writeTextToClipboard(data.key).then(() => {
                     toast.success(t('common.copied'))
+                }).catch(() => {
+                    toast.error(t('common.copyFailed'))
                 })
             }
             resetForm()

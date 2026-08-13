@@ -4,9 +4,7 @@ WORKDIR /aiproxy/web
 
 COPY ./web/ ./
 
-RUN npm install -g pnpm
-
-RUN pnpm install && pnpm run build
+RUN corepack pnpm install --frozen-lockfile && corepack pnpm run build
 
 FROM golang:1.26-alpine AS builder
 
