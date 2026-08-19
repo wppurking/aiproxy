@@ -131,17 +131,20 @@ func shouldRecord(
 		return false
 	}
 
+	// 不按 cached 命中情况判断：当存在多个后端时，若依赖 cached 判断，
+	// 那么多个后端会依次轮询一遍后才会触发到缓存，cachefollow 建立会严重滞后。
+	// 因此当前用户触发一次就添加到 cachefollow 中，等待一个 followed ttl 收敛。
+	//
+	// 原 cached usage 判断（注释保留）：
 	// ollama cloud 模型（带有 :cloud / -cloud 后缀）不返回缓存命中 token，跳过缓存 usage 判断。
 	// 注意：需同时检查 mapping 后的 ActualModel，否则通过 ModelMapping
 	// 把普通模型映射成 :cloud 变体时会漏判（真正决定走云端的是上游模型名）。
-	isCloudModel := isCloudModelName(meta.OriginModel) ||
-		isCloudModelName(meta.ActualModel)
-
-	if !isCloudModel &&
-		(result.Usage.CachedTokens <= 0 && result.Usage.CacheCreationTokens <= 0) {
-		return false
-	}
-
+	// isCloudModel := isCloudModelName(meta.OriginModel) ||
+	// 	isCloudModelName(meta.ActualModel)
+	// if !isCloudModel &&
+	// 	(result.Usage.CachedTokens <= 0 && result.Usage.CacheCreationTokens <= 0) {
+	// 	return false
+	// }
 	if meta.Channel.ID == 0 || meta.OriginModel == "" {
 		return false
 	}
@@ -159,6 +162,7 @@ func shouldRecord(
 }
 
 // isCloudModelName 判断模型名是否为 ollama cloud 变体（:cloud 或 -cloud 后缀）。
+// 当前 shouldRecord 中的 cached 判断已注释保留，此函数暂未被调用。
 func isCloudModelName(model string) bool {
 	return strings.HasSuffix(model, ":cloud") || strings.HasSuffix(model, "-cloud")
 }
