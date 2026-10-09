@@ -185,6 +185,10 @@ func SetRelayRouter(router *gin.Engine) {
 		)
 		relayRouter.POST("/responses",
 			controller.CreateResponse()...)
+		relayRouter.POST("/responses/compact",
+			controller.CompactResponse()...)
+		relayRouter.POST("/alpha/search",
+			controller.AlphaSearch()...)
 		relayRouter.GET("/responses/:response_id",
 			controller.GetResponse()...)
 		relayRouter.DELETE("/responses/:response_id",
@@ -193,7 +197,8 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.CancelResponse()...)
 		relayRouter.GET(
 			"/responses/:response_id/input_items",
-			controller.GetResponseInputItems()...)
+			controller.GetResponseInputItems()...,
+		)
 
 		relayRouter.POST("/images/variations", controller.RelayNotImplemented)
 		relayRouter.GET("/files", controller.RelayNotImplemented)

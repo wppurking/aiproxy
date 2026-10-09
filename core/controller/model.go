@@ -57,7 +57,7 @@ func (c *BuiltinModelConfig) MarshalJSON() ([]byte, error) {
 }
 
 func SortBuiltinModelConfigsFunc(i, j BuiltinModelConfig) int {
-	return model.SortModelConfigsFunc((model.ModelConfig)(i), (model.ModelConfig)(j))
+	return model.SortModelConfigsFunc(model.ModelConfig(i), model.ModelConfig(j))
 }
 
 var (
@@ -106,7 +106,7 @@ func init() {
 					Root:       _model.Model,
 					Parent:     nil,
 				}
-				builtinModels = append(builtinModels, (BuiltinModelConfig)(_model))
+				builtinModels = append(builtinModels, BuiltinModelConfig(_model))
 			} else if v.OwnedBy != string(_model.Owner) {
 				log.Fatalf(
 					"model %s owner mismatch, expect %s, actual %s",
@@ -116,7 +116,7 @@ func init() {
 				)
 			}
 
-			builtinChannelType2Models[i][idx] = (BuiltinModelConfig)(_model)
+			builtinChannelType2Models[i][idx] = BuiltinModelConfig(_model)
 		}
 	}
 
@@ -261,20 +261,22 @@ func EnabledModelsSet(c *gin.Context) {
 }
 
 type EnabledModelChannel struct {
-	ID       int               `json:"id"`
-	Type     model.ChannelType `json:"type"`
-	Name     string            `json:"name"`
-	Priority int32             `json:"priority"`
-	Weight   float64           `json:"weight"` // 权重百分比 (0-100)
+	ID         int               `json:"id"`
+	Type       model.ChannelType `json:"type"`
+	Name       string            `json:"name"`
+	Priority   int32             `json:"priority"`
+	Weight     float64           `json:"weight"` // 权重百分比 (0-100)
+	BackupOnly bool              `json:"backup_only"`
 }
 
 func newEnabledModelChannel(ch *model.Channel) EnabledModelChannel {
 	return EnabledModelChannel{
-		ID:       ch.ID,
-		Type:     ch.Type,
-		Name:     ch.Name,
-		Priority: ch.GetPriority(),
-		Weight:   0, // 将在后面计算
+		ID:         ch.ID,
+		Type:       ch.Type,
+		Name:       ch.Name,
+		Priority:   ch.GetPriority(),
+		BackupOnly: ch.BackupOnly,
+		Weight:     0, // 将在后面计算
 	}
 }
 

@@ -75,20 +75,81 @@ const pluginSchema = z.object({
     }).optional(),
 }).optional()
 
+const dailyTimePattern = /^([01]\d|2[0-3]):[0-5]\d$/
+
+function isValidTimeZone(value: string): boolean {
+    try {
+        new Intl.DateTimeFormat('en-US', { timeZone: value }).format()
+        return true
+    } catch {
+        return false
+    }
+}
+
 // Price condition schema
-const priceConditionSchema = z.object({
+export const priceConditionSchema = z.object({
     input_token_min: z.number().optional(),
     input_token_max: z.number().optional(),
     output_token_min: z.number().optional(),
     output_token_max: z.number().optional(),
     start_time: z.number().optional(),
     end_time: z.number().optional(),
+    daily_start_time: z.string().regex(dailyTimePattern, 'Daily start time must use HH:mm format').optional(),
+    daily_end_time: z.string().regex(dailyTimePattern, 'Daily end time must use HH:mm format').optional(),
+    timezone: z.string().optional(),
     resolution: z.array(z.string()).optional(),
     quality: z.array(z.string()).optional(),
     service_tier: z.enum(['auto', 'default', 'flex', 'scale', 'priority']).or(z.literal('')).optional(),
     input_media: z.boolean().optional(),
     input_video: z.boolean().optional(),
     output_audio: z.boolean().optional(),
+}).superRefine((condition, ctx) => {
+    if (condition.start_time && condition.end_time && condition.start_time >= condition.end_time) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Start time must be before end time',
+            path: ['end_time'],
+        })
+    }
+
+    const hasDailyStart = Boolean(condition.daily_start_time)
+    const hasDailyEnd = Boolean(condition.daily_end_time)
+    if (hasDailyStart !== hasDailyEnd) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Daily start time and daily end time must be set together',
+            path: [hasDailyStart ? 'daily_end_time' : 'daily_start_time'],
+        })
+    }
+
+    if (hasDailyStart && condition.daily_start_time === condition.daily_end_time) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Daily start time must differ from daily end time',
+            path: ['daily_end_time'],
+        })
+    }
+
+    const timezone = condition.timezone?.trim() || ''
+    if (hasDailyStart && !timezone) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Timezone is required for a daily time range',
+            path: ['timezone'],
+        })
+    } else if (hasDailyStart && !isValidTimeZone(timezone)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Timezone must be a valid IANA timezone',
+            path: ['timezone'],
+        })
+    } else if (!hasDailyStart && timezone) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Timezone requires a daily time range',
+            path: ['timezone'],
+        })
+    }
 })
 
 // Price schema (used for conditional prices)
@@ -162,6 +223,8 @@ const modelConfigSchema = z.object({
     support_voices: z.array(z.string()).optional(),
 }).optional()
 
+export const retryBudgetSchema = z.number().int().min(0).max(180)
+
 export const modelCreateSchema = z.object({
     model: z.string().min(1, 'Model name is required'),
     config: modelConfigSchema,
@@ -170,7 +233,8 @@ export const modelCreateSchema = z.object({
     exclude_from_tests: z.boolean().optional(),
     rpm: z.number().nonnegative('RPM must be a non-negative number').optional(),
     tpm: z.number().nonnegative('TPM must be a non-negative number').optional(),
-    retry_times: z.number().nonnegative('Retry times must be a non-negative number').optional(),
+    retry_times: z.number().int().nonnegative('Retry times must be a non-negative number').optional(),
+    retry_budget: retryBudgetSchema.optional(),
     timeout: z.number().nonnegative('Timeout must be a non-negative number').optional(),
     stream_timeout: z.number().nonnegative('Stream timeout must be a non-negative number').optional(),
     force_save_detail: z.boolean().optional(),

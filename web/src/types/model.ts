@@ -19,6 +19,9 @@ export interface PriceCondition {
     output_token_max?: number
     start_time?: number
     end_time?: number
+    daily_start_time?: string
+    daily_end_time?: string
+    timezone?: string
     resolution?: string[]
     quality?: string[]
     service_tier?: '' | 'auto' | 'default' | 'flex' | 'scale' | 'priority'
@@ -77,6 +80,7 @@ export interface ModelConfig {
     rpm?: number
     tpm?: number
     retry_times?: number
+    retry_budget?: number
     timeout_config?: TimeoutConfig
     force_save_detail?: boolean
     max_image_generation_count?: number
@@ -189,6 +193,7 @@ export interface ModelCreateRequest {
     rpm?: number
     tpm?: number
     retry_times?: number
+    retry_budget?: number
     timeout_config?: TimeoutConfig
     force_save_detail?: boolean
     max_image_generation_count?: number
