@@ -11,9 +11,15 @@ import (
 // opencodeSessionHeader 是 opencode 上游使用的会话 header。
 const opencodeSessionHeader = "x-opencode-session"
 
-// sessionAffinityHeaderConfigKey 是 channel configs 中指定目标会话 header 名的字段，
-// 用于 opencode 之外的其它上游。
-const sessionAffinityHeaderConfigKey = "session_affinity_header"
+// sessionAffinityFormatConfigKey 是 channel configs 中指定上游格式的字段。
+// 取值是上游的 format 名，例如 openai、opencode。
+const sessionAffinityFormatConfigKey = "session_affinity_format"
+
+// sessionAffinityFormatHeaders 保存不同上游 format 对应的目标会话 header 名。
+var sessionAffinityFormatHeaders = map[string]string{
+	"openai":   "x-session-id",
+	"opencode": opencodeSessionHeader,
+}
 
 // sessionAffinitySourceHeaders 是不同客户端可能用来携带会话 id 的原始 header，
 // 命中第一个有值的就停，同名多值全部保留。
@@ -29,18 +35,14 @@ var sessionAffinitySourceHeaders = []string{
 	"x-client-request-id",
 }
 
-// getSessionAffinityHeader 按 channel configs 决定要写到上游的会话 header 名：
-// session_affinity_header 显式指定优先；否则 opencode: true 时用 x-opencode-session。
+// getSessionAffinityHeader 按 channel configs 的 session_affinity_format 返回上游会话 header 名。
 func getSessionAffinityHeader(meta *meta.Meta) string {
-	if header, ok := meta.ChannelConfigs[sessionAffinityHeaderConfigKey].(string); ok && header != "" {
-		return header
+	format, ok := meta.ChannelConfigs[sessionAffinityFormatConfigKey].(string)
+	if !ok {
+		return ""
 	}
 
-	if enabled, ok := meta.ChannelConfigs["opencode"].(bool); ok && enabled {
-		return opencodeSessionHeader
-	}
-
-	return ""
+	return sessionAffinityFormatHeaders[format]
 }
 
 // setSessionAffinityHeaders 从客户端原始请求 header 解析会话 id，写到上游请求的 headerKey 上。
