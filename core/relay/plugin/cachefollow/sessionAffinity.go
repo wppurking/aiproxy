@@ -8,16 +8,13 @@ import (
 	"github.com/labring/aiproxy/core/relay/meta"
 )
 
-// opencodeSessionHeader 是 opencode 上游使用的会话 header。
-const opencodeSessionHeader = "x-opencode-session"
-
 // sessionAffinityFormatConfigKey 是 channel configs 中指定上游格式的字段。
 // 取值是上游的 format 名，例如 openai、opencode。
 const sessionAffinityFormatConfigKey = "session_affinity_format"
 
 // sessionAffinityFormatHeaders 保存不同上游 format 对应的目标会话 header 名。
 var sessionAffinityFormatHeaders = map[string]string{
-	"opencode": opencodeSessionHeader,
+	"opencode": "x-opencode-session",
 }
 
 // sessionAffinitySourceHeaders 是不同客户端可能用来携带会话 id 的原始 header，
