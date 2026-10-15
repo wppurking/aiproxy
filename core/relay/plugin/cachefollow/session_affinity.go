@@ -10,6 +10,9 @@ import (
 	"github.com/labring/aiproxy/core/relay/meta"
 )
 
+// defaultUserAgent 是上游请求没有自带 User-Agent 时的兜底值.
+const defaultUserAgent = "pi (darwin 25.5.0; arm64)"
+
 // sessionAffinityKeyPrefix 故意留空:回退会话 id 只提交纯哈希,不带像 session_affinity 这类
 // 规范化前缀,避免上游从 header 值就认出是我们的路由指纹.
 const sessionAffinityKeyPrefix = ""
@@ -105,6 +108,10 @@ func (p *Plugin) SetupRequestHeader(
 ) error {
 	if header := getSessionAffinityHeader(meta); header != "" {
 		setSessionAffinityHeaders(meta, c, req, header)
+	}
+
+	if req != nil && req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", defaultUserAgent)
 	}
 
 	return do.SetupRequestHeader(meta, store, c, req)
