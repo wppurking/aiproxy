@@ -17,22 +17,18 @@ const sessionAffinityFormatConfigKey = "session_affinity_format"
 
 // sessionAffinityFormatHeaders 保存不同上游 format 对应的目标会话 header 名。
 var sessionAffinityFormatHeaders = map[string]string{
-	"openai":   "x-session-id",
 	"opencode": opencodeSessionHeader,
 }
 
 // sessionAffinitySourceHeaders 是不同客户端可能用来携带会话 id 的原始 header，
 // 命中第一个有值的就停，同名多值全部保留。
-// 上游 adaptor 只复制固定白名单 header，这些名字大多不在其中，会被丢掉，因此在这里补发。
 var sessionAffinitySourceHeaders = []string{
-	opencodeSessionHeader,
 	"x-session-id",
 	"session_id",
 	"session-id",
+	"x-session-affinity",
 	"x-conversation-id",
 	"conversation_id",
-	"thread-id",
-	"x-client-request-id",
 }
 
 // getSessionAffinityHeader 按 channel configs 的 session_affinity_format 返回上游会话 header 名。
@@ -45,13 +41,23 @@ func getSessionAffinityHeader(meta *meta.Meta) string {
 	return sessionAffinityFormatHeaders[format]
 }
 
-// setSessionAffinityHeaders 从客户端原始请求 header 解析会话 id，写到上游请求的 headerKey 上。
-func setSessionAffinityHeaders(c *gin.Context, req *http.Request, headerKey string) {
-	if c == nil || c.Request == nil || req == nil || headerKey == "" {
+// setSessionAffinityHeaders 解析会话 id 并只写到上游请求的 headerKey 上。
+// 取值优先级：prompt cache key > 客户端 format key > 通用 session id 系列。
+func setSessionAffinityHeaders(m *meta.Meta, c *gin.Context, req *http.Request, headerKey string) {
+	if req == nil || headerKey == "" {
 		return
 	}
 
-	// 配置的 headerKey 优先作为来源，再回退到通用客户端 header 列表。
+	if m != nil && m.PromptCacheKey != "" {
+		req.Header.Set(headerKey, m.PromptCacheKey)
+
+		return
+	}
+
+	if c == nil || c.Request == nil {
+		return
+	}
+
 	for _, name := range append([]string{headerKey}, sessionAffinitySourceHeaders...) {
 		values := c.Request.Header.Values(name)
 		if len(values) == 0 {
@@ -75,7 +81,7 @@ func (p *Plugin) SetupRequestHeader(
 	do adaptor.SetupRequestHeader,
 ) error {
 	if header := getSessionAffinityHeader(meta); header != "" {
-		setSessionAffinityHeaders(c, req, header)
+		setSessionAffinityHeaders(meta, c, req, header)
 	}
 
 	return do.SetupRequestHeader(meta, store, c, req)
