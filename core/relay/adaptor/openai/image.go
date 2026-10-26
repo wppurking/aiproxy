@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/bytedance/sonic"
 	"github.com/bytedance/sonic/ast"
@@ -37,6 +38,14 @@ func ConvertImagesRequest(
 	}
 
 	meta.Set(MetaResponseFormat, responseFormat)
+
+	// gpt-image models reject response_format; upstream returns url and ImagesHandler
+	// converts it to b64 when requested
+	if strings.HasPrefix(meta.ActualModel, "gpt-image") {
+		if _, err = node.Unset("response_format"); err != nil && !errors.Is(err, ast.ErrNotExist) {
+			return adaptor.ConvertResult{}, convertRequestError(meta, err.Error())
+		}
+	}
 
 	_, err = node.Set("model", ast.NewString(meta.ActualModel))
 	if err != nil {

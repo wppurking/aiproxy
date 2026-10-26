@@ -46,6 +46,36 @@ func TestConvertImagesRequest_DefaultIncludesModel(t *testing.T) {
 
 	assert.Equal(t, "gpt-image-1", payload["model"])
 	assert.Equal(t, "b64_json", meta.GetString(MetaResponseFormat))
+
+	_, ok := payload["response_format"]
+	assert.False(t, ok, "response_format should be stripped before sending upstream")
+}
+
+func TestConvertImagesRequest_KeepsResponseFormatForNonGPTImage(t *testing.T) {
+	meta := meta.NewMeta(nil, mode.ImagesGenerations, "dall-e-3", model.ModelConfig{})
+
+	req, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		"http://example.com/v1/images/generations",
+		strings.NewReader(`{"prompt":"test","response_format":"b64_json"}`),
+	)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	result, err := ConvertImagesRequest(meta, req)
+	require.NoError(t, err)
+
+	body, err := io.ReadAll(result.Body)
+	require.NoError(t, err)
+
+	var payload map[string]any
+
+	err = json.Unmarshal(body, &payload)
+	require.NoError(t, err)
+
+	assert.Equal(t, "b64_json", payload["response_format"])
+	assert.Equal(t, "b64_json", meta.GetString(MetaResponseFormat))
 }
 
 func TestConvertImagesRequest_CanRemoveModelDynamically(t *testing.T) {
@@ -72,6 +102,8 @@ func TestConvertImagesRequest_CanRemoveModelDynamically(t *testing.T) {
 	require.NoError(t, err)
 
 	_, ok := payload["model"]
+	assert.False(t, ok)
+	_, ok = payload["response_format"]
 	assert.False(t, ok)
 	assert.Equal(t, "b64_json", meta.GetString(MetaResponseFormat))
 }
