@@ -225,85 +225,61 @@ func saveRecentStoreMapping(
 	)
 }
 
-func savePromptCacheMappings(
+func saveAffinityMappings(
 	store adaptor.Store,
 	meta *meta.Meta,
+	stableID string,
+	recentID string,
 	expiresAt time.Time,
 	minInterval time.Duration,
 ) error {
-	if err := saveStableStoreMapping(
-		store,
-		model.PromptCacheStoreID(
-			meta.OriginModel,
-			meta.PromptCacheKey,
-			model.CacheKeyTypeStable,
-		),
-		meta,
-		expiresAt,
-	); err != nil {
+	if err := saveStableStoreMapping(store, stableID, meta, expiresAt); err != nil {
 		return err
 	}
 
-	return saveRecentStoreMapping(
+	return saveRecentStoreMapping(store, recentID, meta, expiresAt, minInterval)
+}
+
+// affinityPromptCacheKey 按 prompt_cache_key 建立会话亲合，优先级最高。
+func affinityPromptCacheKey(
+	store adaptor.Store,
+	meta *meta.Meta,
+	config Config,
+	retention string,
+) error {
+	expiresAt := time.Now().Add(getFollowedChannelTTL(retention, config.GetFollowedChannelTTL()))
+
+	return saveAffinityMappings(
 		store,
-		model.PromptCacheStoreID(
-			meta.OriginModel,
-			meta.PromptCacheKey,
-			model.CacheKeyTypeRecent,
-		),
 		meta,
+		model.PromptCacheStoreID(meta.OriginModel, meta.PromptCacheKey, model.CacheKeyTypeStable),
+		model.PromptCacheStoreID(meta.OriginModel, meta.PromptCacheKey, model.CacheKeyTypeRecent),
 		expiresAt,
-		minInterval,
+		config.GetRecentChannelUpdateDebounce(),
 	)
 }
 
-func saveCacheFollowMappings(
-	store adaptor.Store,
-	meta *meta.Meta,
-	expiresAt time.Time,
-	minInterval time.Duration,
-	enableGenericFollow bool,
-) error {
-	if meta.User != "" {
-		if err := saveStableStoreMapping(
-			store,
-			model.CacheFollowUserStoreID(meta.OriginModel, meta.User, model.CacheKeyTypeStable),
-			meta,
-			expiresAt,
-		); err != nil {
-			return err
-		}
-
-		if err := saveRecentStoreMapping(
-			store,
-			model.CacheFollowUserStoreID(meta.OriginModel, meta.User, model.CacheKeyTypeRecent),
-			meta,
-			expiresAt,
-			minInterval,
-		); err != nil {
-			return err
-		}
-	}
-
-	if !enableGenericFollow {
-		return nil
-	}
-
-	if err := saveStableStoreMapping(
+// affinityMetaUser 按请求体中的 user 建立会话亲合。
+func affinityMetaUser(store adaptor.Store, meta *meta.Meta, config Config) error {
+	return saveAffinityMappings(
 		store,
+		meta,
+		model.CacheFollowUserStoreID(meta.OriginModel, meta.User, model.CacheKeyTypeStable),
+		model.CacheFollowUserStoreID(meta.OriginModel, meta.User, model.CacheKeyTypeRecent),
+		time.Now().Add(config.GetFollowedChannelTTL()),
+		config.GetRecentChannelUpdateDebounce(),
+	)
+}
+
+// affinityGenericFollow 按模型建立会话亲合，优先级最低。
+func affinityGenericFollow(store adaptor.Store, meta *meta.Meta, config Config) error {
+	return saveAffinityMappings(
+		store,
+		meta,
 		model.CacheFollowStoreID(meta.OriginModel, model.CacheKeyTypeStable),
-		meta,
-		expiresAt,
-	); err != nil {
-		return err
-	}
-
-	return saveRecentStoreMapping(
-		store,
 		model.CacheFollowStoreID(meta.OriginModel, model.CacheKeyTypeRecent),
-		meta,
-		expiresAt,
-		minInterval,
+		time.Now().Add(config.GetFollowedChannelTTL()),
+		config.GetRecentChannelUpdateDebounce(),
 	)
 }
 
@@ -362,33 +338,32 @@ func (p *Plugin) DoResponse(
 		return result, relayErr
 	}
 
+	// 三层会话亲合按优先级择一写入，各自的读者与写者集合一致。
 	if meta.PromptCacheKey != "" && supportsPromptCache {
 		retention := ""
 		if retentionWriter != nil {
 			retention = retentionWriter.retention
 		}
 
-		expiresAt := time.Now().
-			Add(getFollowedChannelTTL(retention, pluginConfig.GetFollowedChannelTTL()))
-		if err := savePromptCacheMappings(
-			store,
-			meta,
-			expiresAt,
-			pluginConfig.GetRecentChannelUpdateDebounce(),
-		); err != nil {
+		if err := affinityPromptCacheKey(store, meta, *pluginConfig, retention); err != nil {
 			common.GetLogger(c).Warnf("save prompt cache key store failed: %v", err)
 		}
+
+		return result, relayErr
 	}
 
-	expiresAt := time.Now().Add(pluginConfig.GetFollowedChannelTTL())
-	if err := saveCacheFollowMappings(
-		store,
-		meta,
-		expiresAt,
-		pluginConfig.GetRecentChannelUpdateDebounce(),
-		pluginConfig.EnableGenericFollow,
-	); err != nil {
-		common.GetLogger(c).Warnf("save cachefollow store failed: %v", err)
+	if meta.User != "" {
+		if err := affinityMetaUser(store, meta, *pluginConfig); err != nil {
+			common.GetLogger(c).Warnf("save user cachefollow store failed: %v", err)
+		}
+
+		return result, relayErr
+	}
+
+	if pluginConfig.EnableGenericFollow {
+		if err := affinityGenericFollow(store, meta, *pluginConfig); err != nil {
+			common.GetLogger(c).Warnf("save generic cachefollow store failed: %v", err)
+		}
 	}
 
 	return result, relayErr

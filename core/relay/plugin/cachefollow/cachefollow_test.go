@@ -107,7 +107,7 @@ func (d doResponseFunc) DoResponse(
 	return d.fn(meta, store, c, resp)
 }
 
-func TestDoResponseRecordsPromptAndGenericMappingsForResponses(t *testing.T) {
+func TestDoResponseRecordsPromptCacheMappingsForResponses(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
@@ -161,8 +161,9 @@ func TestDoResponseRecordsPromptAndGenericMappingsForResponses(t *testing.T) {
 
 	require.Nil(t, relayErr)
 	assert.Equal(t, int64(6), int64(result.Usage.CachedTokens))
-	require.Len(t, store.savedIfNotExist, 2)
-	require.Len(t, store.saved, 2)
+	// generic follow 已开启，但 prompt cache key 优先级更高，只写这一层
+	require.Len(t, store.savedIfNotExist, 1)
+	require.Len(t, store.saved, 1)
 	assert.Equal(
 		t,
 		model.PromptCacheStoreID("gpt-5", "cache-key", model.CacheKeyTypeStable),
@@ -170,18 +171,8 @@ func TestDoResponseRecordsPromptAndGenericMappingsForResponses(t *testing.T) {
 	)
 	assert.Equal(
 		t,
-		model.CacheFollowStoreID("gpt-5", model.CacheKeyTypeStable),
-		store.savedIfNotExist[1].ID,
-	)
-	assert.Equal(
-		t,
 		model.PromptCacheStoreID("gpt-5", "cache-key", model.CacheKeyTypeRecent),
 		store.saved[0].ID,
-	)
-	assert.Equal(
-		t,
-		model.CacheFollowStoreID("gpt-5", model.CacheKeyTypeRecent),
-		store.saved[1].ID,
 	)
 	assert.True(t, store.savedIfNotExist[0].ExpiresAt.After(start.Add(5*time.Minute-time.Second)))
 	assert.True(t, store.savedIfNotExist[0].ExpiresAt.Before(end.Add(5*time.Minute+time.Second)))
@@ -189,7 +180,7 @@ func TestDoResponseRecordsPromptAndGenericMappingsForResponses(t *testing.T) {
 	assert.True(t, store.saved[0].ExpiresAt.Before(end.Add(5*time.Minute+time.Second)))
 }
 
-func TestDoResponseRecordsPromptAndGenericMappingsForResponsesCompact(t *testing.T) {
+func TestDoResponseRecordsPromptCacheMappingsForResponsesCompact(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
@@ -236,8 +227,8 @@ func TestDoResponseRecordsPromptAndGenericMappingsForResponsesCompact(t *testing
 	)
 
 	require.Nil(t, relayErr)
-	require.Len(t, store.savedIfNotExist, 2)
-	require.Len(t, store.saved, 2)
+	require.Len(t, store.savedIfNotExist, 1)
+	require.Len(t, store.saved, 1)
 	assert.Equal(
 		t,
 		model.PromptCacheStoreID("gpt-5", "cache-key", model.CacheKeyTypeStable),
@@ -245,18 +236,8 @@ func TestDoResponseRecordsPromptAndGenericMappingsForResponsesCompact(t *testing
 	)
 	assert.Equal(
 		t,
-		model.CacheFollowStoreID("gpt-5", model.CacheKeyTypeStable),
-		store.savedIfNotExist[1].ID,
-	)
-	assert.Equal(
-		t,
 		model.PromptCacheStoreID("gpt-5", "cache-key", model.CacheKeyTypeRecent),
 		store.saved[0].ID,
-	)
-	assert.Equal(
-		t,
-		model.CacheFollowStoreID("gpt-5", model.CacheKeyTypeRecent),
-		store.saved[1].ID,
 	)
 }
 
@@ -370,7 +351,7 @@ func TestDoResponseRecordsUserCacheFollowWhenPromptCacheKeyAbsent(t *testing.T) 
 	)
 }
 
-func TestDoResponseRecordsPromptAndGenericMappingsForChatCompletions(t *testing.T) {
+func TestDoResponseRecordsPromptCacheMappingsForChatCompletions(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
@@ -419,8 +400,8 @@ func TestDoResponseRecordsPromptAndGenericMappingsForChatCompletions(t *testing.
 	end := time.Now()
 
 	require.Nil(t, relayErr)
-	require.Len(t, store.savedIfNotExist, 2)
-	require.Len(t, store.saved, 2)
+	require.Len(t, store.savedIfNotExist, 1)
+	require.Len(t, store.saved, 1)
 	assert.Equal(
 		t,
 		model.PromptCacheStoreID("gpt-5", "cache-key", model.CacheKeyTypeStable),
@@ -428,18 +409,8 @@ func TestDoResponseRecordsPromptAndGenericMappingsForChatCompletions(t *testing.
 	)
 	assert.Equal(
 		t,
-		model.CacheFollowStoreID("gpt-5", model.CacheKeyTypeStable),
-		store.savedIfNotExist[1].ID,
-	)
-	assert.Equal(
-		t,
 		model.PromptCacheStoreID("gpt-5", "cache-key", model.CacheKeyTypeRecent),
 		store.saved[0].ID,
-	)
-	assert.Equal(
-		t,
-		model.CacheFollowStoreID("gpt-5", model.CacheKeyTypeRecent),
-		store.saved[1].ID,
 	)
 	assert.True(
 		t,
@@ -453,9 +424,7 @@ func TestDoResponseRecordsPromptAndGenericMappingsForChatCompletions(t *testing.
 	assert.True(t, store.saved[0].ExpiresAt.Before(end.Add(defaultFollowedChannelTTL+time.Second)))
 }
 
-func TestDoResponseRecordsUserAndGenericCacheFollowWhenExplicitlyEnabledOnUnsupportedPromptStoreMode(
-	t *testing.T,
-) {
+func TestDoResponseRecordsUserCacheFollowWhenPromptStoreUnsupported(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
@@ -503,8 +472,9 @@ func TestDoResponseRecordsUserAndGenericCacheFollowWhenExplicitlyEnabledOnUnsupp
 	)
 
 	require.Nil(t, relayErr)
-	require.Len(t, store.savedIfNotExist, 2)
-	require.Len(t, store.saved, 2)
+	// Gemini 不支持 prompt cache store，回退到 user 层，generic 不再写
+	require.Len(t, store.savedIfNotExist, 1)
+	require.Len(t, store.saved, 1)
 	assert.Equal(
 		t,
 		model.CacheFollowUserStoreID("gemini-2.5-pro", "user-1", model.CacheKeyTypeStable),
@@ -512,18 +482,8 @@ func TestDoResponseRecordsUserAndGenericCacheFollowWhenExplicitlyEnabledOnUnsupp
 	)
 	assert.Equal(
 		t,
-		model.CacheFollowStoreID("gemini-2.5-pro", model.CacheKeyTypeStable),
-		store.savedIfNotExist[1].ID,
-	)
-	assert.Equal(
-		t,
 		model.CacheFollowUserStoreID("gemini-2.5-pro", "user-1", model.CacheKeyTypeRecent),
 		store.saved[0].ID,
-	)
-	assert.Equal(
-		t,
-		model.CacheFollowStoreID("gemini-2.5-pro", model.CacheKeyTypeRecent),
-		store.saved[1].ID,
 	)
 }
 
@@ -714,7 +674,7 @@ func TestDoResponseRecordsOllamaCloudModelViaModelMapping(t *testing.T) {
 	)
 }
 
-func TestDoResponseRecordsPromptAndUserMappingsTogetherByDefault(t *testing.T) {
+func TestDoResponsePrefersPromptCacheKeyOverUserByDefault(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
@@ -766,8 +726,9 @@ func TestDoResponseRecordsPromptAndUserMappingsTogetherByDefault(t *testing.T) {
 	)
 
 	require.Nil(t, relayErr)
-	require.Len(t, store.savedIfNotExist, 2)
-	require.Len(t, store.saved, 2)
+	// 有 prompt cache key 时不再写 user 层，user 的请求会各自写自己的那一层
+	require.Len(t, store.savedIfNotExist, 1)
+	require.Len(t, store.saved, 1)
 	assert.Equal(
 		t,
 		model.PromptCacheStoreID("gpt-5", "cache-key", model.CacheKeyTypeStable),
@@ -775,18 +736,8 @@ func TestDoResponseRecordsPromptAndUserMappingsTogetherByDefault(t *testing.T) {
 	)
 	assert.Equal(
 		t,
-		model.CacheFollowUserStoreID("gpt-5", "user-1", model.CacheKeyTypeStable),
-		store.savedIfNotExist[1].ID,
-	)
-	assert.Equal(
-		t,
 		model.PromptCacheStoreID("gpt-5", "cache-key", model.CacheKeyTypeRecent),
 		store.saved[0].ID,
-	)
-	assert.Equal(
-		t,
-		model.CacheFollowUserStoreID("gpt-5", "user-1", model.CacheKeyTypeRecent),
-		store.saved[1].ID,
 	)
 }
 
@@ -1133,10 +1084,11 @@ func TestBackupOnlyRecordsRecentMappings(t *testing.T) {
 		if backupOnly {
 			assert.Empty(t, store.savedIfNotExist)
 		} else {
-			require.Len(t, store.savedIfNotExist, 3)
+			// 只有 prompt cache key 这一层被写入
+			require.Len(t, store.savedIfNotExist, 1)
 		}
 
-		require.Len(t, store.saved, 3)
+		require.Len(t, store.saved, 1)
 
 		for _, mapping := range store.stores {
 			assert.Equal(t, 9, mapping.ChannelID)
