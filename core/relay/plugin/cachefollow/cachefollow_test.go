@@ -2,6 +2,7 @@
 package cachefollow
 
 import (
+	"errors"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -96,6 +97,18 @@ func (s *recordingStore) SaveIfNotExistStore(
 
 type doResponseFunc struct {
 	fn func(*meta.Meta, adaptor.Store, *gin.Context, *http.Response) (adaptor.DoResponseResult, adaptor.Error)
+}
+
+// errorStore 让 stable 写入失败，验证三层亲合写失败都不会影响响应。
+type errorStore struct {
+	recordingStore
+}
+
+func (s *errorStore) SaveIfNotExistStore(
+	_ adaptor.StoreCache,
+	_ model.ChannelScope,
+) error {
+	return errors.New("store down")
 }
 
 func (d doResponseFunc) DoResponse(
@@ -1098,5 +1111,75 @@ func TestBackupOnlyRecordsRecentMappings(t *testing.T) {
 
 		requestMeta.SetChannel(&model.Channel{ID: 1})
 		assert.False(t, requestMeta.Channel.BackupOnly)
+	}
+}
+
+func TestDoResponseIgnoresAffinitySaveErrors(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	for _, tt := range []struct {
+		name          string
+		promptKey     string
+		user          string
+		enableGeneric bool
+	}{
+		{name: "prompt cache key tier", promptKey: "cache-key"},
+		{name: "user tier", user: "user-1"},
+		{name: "generic tier", enableGeneric: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &errorStore{}
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequestWithContext(
+				t.Context(),
+				http.MethodPost,
+				"/v1/chat/completions",
+				nil,
+			)
+
+			requestMeta := &meta.Meta{
+				Mode:           mode.ChatCompletions,
+				OriginModel:    "gpt-5",
+				PromptCacheKey: tt.promptKey,
+				User:           tt.user,
+				ModelConfig: model.ModelConfig{
+					Model: "gpt-5",
+					Plugin: map[string]map[string]any{
+						PluginName: {
+							"enable":                true,
+							"enable_generic_follow": tt.enableGeneric,
+						},
+					},
+				},
+				Group:   model.GroupCache{ID: "group-1"},
+				Token:   model.TokenCache{ID: 7},
+				Channel: meta.ChannelMeta{ID: 9},
+			}
+
+			result, relayErr := (&Plugin{}).DoResponse(
+				requestMeta,
+				store,
+				c,
+				&http.Response{StatusCode: http.StatusOK},
+				doResponseFunc{
+					fn: func(_ *meta.Meta, _ adaptor.Store, c *gin.Context, _ *http.Response) (adaptor.DoResponseResult, adaptor.Error) {
+						c.Status(http.StatusOK)
+						_, _ = c.Writer.Write([]byte(`{"id":"chatcmpl-1"}`))
+
+						return adaptor.DoResponseResult{
+							Usage: model.Usage{CachedTokens: 4},
+						}, nil
+					},
+				},
+			)
+
+			require.Nil(t, relayErr)
+			assert.Equal(t, int64(4), int64(result.Usage.CachedTokens))
+			assert.Empty(t, store.savedIfNotExist)
+			assert.Empty(t, store.saved)
+		})
 	}
 }
