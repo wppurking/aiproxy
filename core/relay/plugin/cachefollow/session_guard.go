@@ -16,6 +16,9 @@ const (
 
 	// promptCacheKeyField 是 response api 请求中用于会话保持的字段.
 	promptCacheKeyField = "prompt_cache_key"
+
+	// anthropicUserIDField 是 anthropic message api 请求中用于会话保持的字段.
+	anthropicUserIDField = "user_id"
 )
 
 // sessionGuardEnabled 判断当前 channel 是否开启 session guard.
@@ -30,7 +33,7 @@ func sessionGuardEnabled(m *meta.Meta) bool {
 }
 
 // checkSessionGuard 是 session guard 的检查入口.
-// TODO: 后续实现针对 chat.completions、messages 的会话保持信息检查.
+// TODO: 后续实现针对 chat.completions 的会话保持信息检查.
 func checkSessionGuard(m *meta.Meta, req *http.Request) error {
 	if !sessionGuardEnabled(m) {
 		return nil
@@ -39,6 +42,8 @@ func checkSessionGuard(m *meta.Meta, req *http.Request) error {
 	switch m.Mode {
 	case mode.Responses:
 		return checkResponsesSessionGuard(req)
+	case mode.Anthropic:
+		return checkAnthropicSessionGuard(req)
 	default:
 		return nil
 	}
@@ -54,6 +59,21 @@ func checkResponsesSessionGuard(req *http.Request) error {
 	promptCacheKey, ok := getNodeStringField(&node, promptCacheKeyField)
 	if !ok || promptCacheKey == "" {
 		return errors.New("缺失 prompt_cache_key")
+	}
+
+	return nil
+}
+
+// checkAnthropicSessionGuard 检查 anthropic message api 请求是否携带了非空的 metadata.user_id.
+func checkAnthropicSessionGuard(req *http.Request) error {
+	node, err := common.UnmarshalRequest2NodeReusable(req)
+	if err != nil {
+		return err
+	}
+
+	userID, ok := getNodeStringField(&node, "metadata", anthropicUserIDField)
+	if !ok || userID == "" {
+		return errors.New("缺失 metadata.user_id")
 	}
 
 	return nil

@@ -60,8 +60,8 @@ func getFollowedChannelTTL(retention string, defaultTTL time.Duration) time.Dura
 	return min(ttl, maxFollowedChannelTTL)
 }
 
-func getNodeStringField(node *ast.Node, key string) (string, bool) {
-	field := node.Get(key)
+func getNodeStringField(node *ast.Node, path ...any) (string, bool) {
+	field := node.GetByPath(path...)
 	if field == nil || !field.Exists() {
 		return "", false
 	}
