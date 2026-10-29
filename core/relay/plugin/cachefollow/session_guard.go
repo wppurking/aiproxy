@@ -1,14 +1,22 @@
 package cachefollow
 
 import (
+	"errors"
 	"net/http"
 
+	"github.com/labring/aiproxy/core/common"
 	"github.com/labring/aiproxy/core/relay/adaptor"
 	"github.com/labring/aiproxy/core/relay/meta"
+	"github.com/labring/aiproxy/core/relay/mode"
 )
 
-// sessionGuardConfigKey 是 channel configs 中开启 session guard 的字段.
-const sessionGuardConfigKey = "session_guard"
+const (
+	// sessionGuardConfigKey 是 channel configs 中开启 session guard 的字段.
+	sessionGuardConfigKey = "session_guard"
+
+	// promptCacheKeyField 是 response api 请求中用于会话保持的字段.
+	promptCacheKeyField = "prompt_cache_key"
+)
 
 // sessionGuardEnabled 判断当前 channel 是否开启 session guard.
 func sessionGuardEnabled(m *meta.Meta) bool {
@@ -22,13 +30,31 @@ func sessionGuardEnabled(m *meta.Meta) bool {
 }
 
 // checkSessionGuard 是 session guard 的检查入口.
-// TODO: 后续实现针对 chat.completions、responses、messages 的会话保持信息检查.
+// TODO: 后续实现针对 chat.completions、messages 的会话保持信息检查.
 func checkSessionGuard(m *meta.Meta, req *http.Request) error {
 	if !sessionGuardEnabled(m) {
 		return nil
 	}
 
-	_ = req
+	switch m.Mode {
+	case mode.Responses:
+		return checkResponsesSessionGuard(req)
+	default:
+		return nil
+	}
+}
+
+// checkResponsesSessionGuard 检查 response api 请求是否携带了非空的 prompt_cache_key.
+func checkResponsesSessionGuard(req *http.Request) error {
+	node, err := common.UnmarshalRequest2NodeReusable(req)
+	if err != nil {
+		return err
+	}
+
+	promptCacheKey, ok := getNodeStringField(&node, promptCacheKeyField)
+	if !ok || promptCacheKey == "" {
+		return errors.New("缺失 prompt_cache_key")
+	}
 
 	return nil
 }
