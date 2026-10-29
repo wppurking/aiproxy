@@ -14,6 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSessionGuardEnabled(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, sessionGuardEnabled(Config{}))
+	assert.False(t, sessionGuardEnabled(Config{EnableGenericFollow: true}))
+}
+
 func TestSessionChatGuardEnabled(t *testing.T) {
 	t.Parallel()
 
@@ -73,20 +80,36 @@ func TestCheckSessionGuard(t *testing.T) {
 
 	for _, tt := range []struct {
 		name       string
+		enabled    bool
 		chatGuard  bool
+		config     Config
 		mode       mode.Mode
 		body       string
 		headers    map[string]string
 		wantErrMsg string
 	}{
 		{
+			name:   "responses guard disabled by generic follow",
+			config: Config{EnableGenericFollow: true},
+			mode:   mode.Responses,
+			body:   `{}`,
+		},
+		{
+			name:       "responses guard forced by generic follow disabled",
+			mode:       mode.Responses,
+			body:       `{}`,
+			wantErrMsg: "缺失 prompt_cache_key",
+		},
+		{
 			name:       "responses missing prompt_cache_key",
+			enabled:    true,
 			mode:       mode.Responses,
 			body:       `{}`,
 			wantErrMsg: "缺失 prompt_cache_key",
 		},
 		{
 			name:       "responses missing prompt_cache_key field",
+			enabled:    true,
 			mode:       mode.Responses,
 			body:       `{"model":"gpt-5"}`,
 			wantErrMsg: "缺失 prompt_cache_key",
@@ -196,7 +219,12 @@ func TestCheckSessionGuard(t *testing.T) {
 				m.ChannelConfigs[sessionChatGuardConfigKey] = true
 			}
 
-			err := checkSessionGuard(m, req)
+			config := tt.config
+			if tt.enabled {
+				config.EnableGenericFollow = true
+			}
+
+			err := checkSessionGuard(m, req, config)
 			if tt.wantErrMsg == "" {
 				require.NoError(t, err)
 				return

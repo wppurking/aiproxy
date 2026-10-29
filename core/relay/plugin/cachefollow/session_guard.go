@@ -22,6 +22,12 @@ const (
 	anthropicUserIDField = "user_id"
 )
 
+// sessionGuardEnabled 判断 responses / anthropic 是否需要开启 session guard.
+// EnableGenericFollow 关闭时强制开启保护, 开启时不再检查.
+func sessionGuardEnabled(config Config) bool {
+	return !config.EnableGenericFollow
+}
+
 // sessionChatGuardEnabled 判断当前 channel 是否开启 chat completions 的 session guard.
 // chat completions 的会话 id 可以由路由推导, 因此需要 channel config 显式开启.
 func sessionChatGuardEnabled(m *meta.Meta) bool {
@@ -35,16 +41,24 @@ func sessionChatGuardEnabled(m *meta.Meta) bool {
 }
 
 // checkSessionGuard 是 session guard 的检查入口.
-// responses / anthropic 始终检查; chat completions 由 channel config 决定.
-func checkSessionGuard(m *meta.Meta, req *http.Request) error {
+// responses / anthropic 在 EnableGenericFollow 关闭时强制检查; chat completions 由 channel config 决定.
+func checkSessionGuard(m *meta.Meta, req *http.Request, config Config) error {
 	if m == nil {
 		return nil
 	}
 
 	switch m.Mode {
 	case mode.Responses:
+		if !sessionGuardEnabled(config) {
+			return nil
+		}
+
 		return checkResponsesSessionGuard(req)
 	case mode.Anthropic:
+		if !sessionGuardEnabled(config) {
+			return nil
+		}
+
 		return checkAnthropicSessionGuard(req)
 	case mode.ChatCompletions:
 		if !sessionChatGuardEnabled(m) {
@@ -109,7 +123,12 @@ func (p *Plugin) ConvertRequest(
 	req *http.Request,
 	do adaptor.ConvertRequest,
 ) (adaptor.ConvertResult, error) {
-	if err := checkSessionGuard(meta, req); err != nil {
+	pluginConfig, err := p.getConfig(meta)
+	if err != nil {
+		return do.ConvertRequest(meta, store, req)
+	}
+
+	if err := checkSessionGuard(meta, req, *pluginConfig); err != nil {
 		return adaptor.ConvertResult{}, err
 	}
 
