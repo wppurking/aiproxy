@@ -23,9 +23,14 @@ const (
 )
 
 // sessionGuardEnabled 判断当前 channel 是否开启 session guard.
-func sessionGuardEnabled(m *meta.Meta) bool {
+// EnableGenericFollow 关闭时强制开启 session guard；开启时按 channel config 决定.
+func sessionGuardEnabled(m *meta.Meta, config Config) bool {
 	if m == nil {
 		return false
+	}
+
+	if !config.EnableGenericFollow {
+		return true
 	}
 
 	enabled, _ := m.ChannelConfigs[sessionGuardConfigKey].(bool)
@@ -34,8 +39,8 @@ func sessionGuardEnabled(m *meta.Meta) bool {
 }
 
 // checkSessionGuard 是 session guard 的检查入口.
-func checkSessionGuard(m *meta.Meta, req *http.Request) error {
-	if !sessionGuardEnabled(m) {
+func checkSessionGuard(m *meta.Meta, req *http.Request, config Config) error {
+	if !sessionGuardEnabled(m, config) {
 		return nil
 	}
 
@@ -103,7 +108,12 @@ func (p *Plugin) ConvertRequest(
 	req *http.Request,
 	do adaptor.ConvertRequest,
 ) (adaptor.ConvertResult, error) {
-	if err := checkSessionGuard(meta, req); err != nil {
+	pluginConfig, err := p.getConfig(meta)
+	if err != nil {
+		return do.ConvertRequest(meta, store, req)
+	}
+
+	if err := checkSessionGuard(meta, req, *pluginConfig); err != nil {
 		return adaptor.ConvertResult{}, err
 	}
 

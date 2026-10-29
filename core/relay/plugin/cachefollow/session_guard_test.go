@@ -17,27 +17,70 @@ import (
 func TestSessionGuardEnabled(t *testing.T) {
 	t.Parallel()
 
-	assert.False(t, sessionGuardEnabled(nil))
-	assert.False(t, sessionGuardEnabled(&meta.Meta{}))
+	assert.False(t, sessionGuardEnabled(nil, Config{}))
 
 	for _, tt := range []struct {
 		name    string
 		configs model.ChannelConfigs
+		config  Config
 		want    bool
 	}{
-		{name: "config absent", configs: model.ChannelConfigs{}, want: false},
-		{name: "bool true", configs: model.ChannelConfigs{sessionGuardConfigKey: true}, want: true},
-		{name: "bool false", configs: model.ChannelConfigs{sessionGuardConfigKey: false}, want: false},
-		{name: "string true", configs: model.ChannelConfigs{sessionGuardConfigKey: "true"}, want: false},
-		{name: "string 1", configs: model.ChannelConfigs{sessionGuardConfigKey: "1"}, want: false},
-		{name: "number 1", configs: model.ChannelConfigs{sessionGuardConfigKey: 1}, want: false},
-		{name: "nil value", configs: model.ChannelConfigs{sessionGuardConfigKey: nil}, want: false},
+		{
+			name: "generic follow disabled forces enabled",
+			want: true,
+		},
+		{
+			name:    "generic follow disabled ignores channel config false",
+			configs: model.ChannelConfigs{sessionGuardConfigKey: false},
+			want:    true,
+		},
+		{
+			name:   "generic follow enabled config absent",
+			config: Config{EnableGenericFollow: true},
+			want:   false,
+		},
+		{
+			name:    "generic follow enabled bool true",
+			configs: model.ChannelConfigs{sessionGuardConfigKey: true},
+			config:  Config{EnableGenericFollow: true},
+			want:    true,
+		},
+		{
+			name:    "generic follow enabled bool false",
+			configs: model.ChannelConfigs{sessionGuardConfigKey: false},
+			config:  Config{EnableGenericFollow: true},
+			want:    false,
+		},
+		{
+			name:    "generic follow enabled string true",
+			configs: model.ChannelConfigs{sessionGuardConfigKey: "true"},
+			config:  Config{EnableGenericFollow: true},
+			want:    false,
+		},
+		{
+			name:    "generic follow enabled string 1",
+			configs: model.ChannelConfigs{sessionGuardConfigKey: "1"},
+			config:  Config{EnableGenericFollow: true},
+			want:    false,
+		},
+		{
+			name:    "generic follow enabled number 1",
+			configs: model.ChannelConfigs{sessionGuardConfigKey: 1},
+			config:  Config{EnableGenericFollow: true},
+			want:    false,
+		},
+		{
+			name:    "generic follow enabled nil value",
+			configs: model.ChannelConfigs{sessionGuardConfigKey: nil},
+			config:  Config{EnableGenericFollow: true},
+			want:    false,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			m := &meta.Meta{ChannelConfigs: tt.configs}
-			assert.Equal(t, tt.want, sessionGuardEnabled(m))
+			assert.Equal(t, tt.want, sessionGuardEnabled(m, tt.config))
 		})
 	}
 }
@@ -48,15 +91,23 @@ func TestCheckSessionGuardResponses(t *testing.T) {
 	for _, tt := range []struct {
 		name       string
 		enabled    bool
+		config     Config
 		mode       mode.Mode
 		body       string
 		headers    map[string]string
 		wantErrMsg string
 	}{
 		{
-			name: "guard disabled",
-			mode: mode.Responses,
-			body: `{}`,
+			name:   "guard disabled",
+			config: Config{EnableGenericFollow: true},
+			mode:   mode.Responses,
+			body:   `{}`,
+		},
+		{
+			name:       "guard forced by generic follow disabled",
+			mode:       mode.Responses,
+			body:       `{}`,
+			wantErrMsg: "缺失 prompt_cache_key",
 		},
 		{
 			name:       "guard enabled missing prompt_cache_key",
@@ -172,7 +223,12 @@ func TestCheckSessionGuardResponses(t *testing.T) {
 				ChannelConfigs: model.ChannelConfigs{sessionGuardConfigKey: tt.enabled},
 			}
 
-			err := checkSessionGuard(m, req)
+			config := tt.config
+			if tt.enabled {
+				config.EnableGenericFollow = true
+			}
+
+			err := checkSessionGuard(m, req, config)
 			if tt.wantErrMsg == "" {
 				require.NoError(t, err)
 				return
