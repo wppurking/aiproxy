@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	// sessionGuardConfigKey 是 channel configs 中开启 session guard 的字段.
-	sessionGuardConfigKey = "session_guard"
+	// sessionChatGuardConfigKey 是 channel configs 中开启 chat completions session guard 的字段.
+	sessionChatGuardConfigKey = "session_chat_guard"
 
 	// promptCacheKeyField 是 response api 请求中用于会话保持的字段.
 	promptCacheKeyField = "prompt_cache_key"
@@ -22,25 +22,22 @@ const (
 	anthropicUserIDField = "user_id"
 )
 
-// sessionGuardEnabled 判断当前 channel 是否开启 session guard.
-// EnableGenericFollow 关闭时强制开启 session guard；开启时按 channel config 决定.
-func sessionGuardEnabled(m *meta.Meta, config Config) bool {
+// sessionChatGuardEnabled 判断当前 channel 是否开启 chat completions 的 session guard.
+// chat completions 的会话 id 可以由路由推导, 因此需要 channel config 显式开启.
+func sessionChatGuardEnabled(m *meta.Meta) bool {
 	if m == nil {
 		return false
 	}
 
-	if !config.EnableGenericFollow {
-		return true
-	}
-
-	enabled, _ := m.ChannelConfigs[sessionGuardConfigKey].(bool)
+	enabled, _ := m.ChannelConfigs[sessionChatGuardConfigKey].(bool)
 
 	return enabled
 }
 
 // checkSessionGuard 是 session guard 的检查入口.
-func checkSessionGuard(m *meta.Meta, req *http.Request, config Config) error {
-	if !sessionGuardEnabled(m, config) {
+// responses / anthropic 始终检查; chat completions 由 channel config 决定.
+func checkSessionGuard(m *meta.Meta, req *http.Request) error {
+	if m == nil {
 		return nil
 	}
 
@@ -49,9 +46,12 @@ func checkSessionGuard(m *meta.Meta, req *http.Request, config Config) error {
 		return checkResponsesSessionGuard(req)
 	case mode.Anthropic:
 		return checkAnthropicSessionGuard(req)
-		// 暂时只针对 response 和 anthropic 两类消息进行处理
-	//case mode.ChatCompletions:
-	//	return checkChatCompletionsSessionGuard(req)
+	case mode.ChatCompletions:
+		if !sessionChatGuardEnabled(m) {
+			return nil
+		}
+
+		return checkChatCompletionsSessionGuard(req)
 	default:
 		return nil
 	}
@@ -109,12 +109,7 @@ func (p *Plugin) ConvertRequest(
 	req *http.Request,
 	do adaptor.ConvertRequest,
 ) (adaptor.ConvertResult, error) {
-	pluginConfig, err := p.getConfig(meta)
-	if err != nil {
-		return do.ConvertRequest(meta, store, req)
-	}
-
-	if err := checkSessionGuard(meta, req, *pluginConfig); err != nil {
+	if err := checkSessionGuard(meta, req); err != nil {
 		return adaptor.ConvertResult{}, err
 	}
 

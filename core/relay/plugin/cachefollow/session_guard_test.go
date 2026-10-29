@@ -14,65 +14,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSessionGuardEnabled(t *testing.T) {
+func TestSessionChatGuardEnabled(t *testing.T) {
 	t.Parallel()
 
-	assert.False(t, sessionGuardEnabled(nil, Config{}))
+	assert.False(t, sessionChatGuardEnabled(nil))
 
 	for _, tt := range []struct {
 		name    string
 		configs model.ChannelConfigs
-		config  Config
 		want    bool
 	}{
 		{
-			name: "generic follow disabled forces enabled",
-			want: true,
+			name: "config absent",
+			want: false,
 		},
 		{
-			name:    "generic follow disabled ignores channel config false",
-			configs: model.ChannelConfigs{sessionGuardConfigKey: false},
+			name:    "bool true",
+			configs: model.ChannelConfigs{sessionChatGuardConfigKey: true},
 			want:    true,
 		},
 		{
-			name:   "generic follow enabled config absent",
-			config: Config{EnableGenericFollow: true},
-			want:   false,
-		},
-		{
-			name:    "generic follow enabled bool true",
-			configs: model.ChannelConfigs{sessionGuardConfigKey: true},
-			config:  Config{EnableGenericFollow: true},
-			want:    true,
-		},
-		{
-			name:    "generic follow enabled bool false",
-			configs: model.ChannelConfigs{sessionGuardConfigKey: false},
-			config:  Config{EnableGenericFollow: true},
+			name:    "bool false",
+			configs: model.ChannelConfigs{sessionChatGuardConfigKey: false},
 			want:    false,
 		},
 		{
-			name:    "generic follow enabled string true",
-			configs: model.ChannelConfigs{sessionGuardConfigKey: "true"},
-			config:  Config{EnableGenericFollow: true},
+			name:    "string true",
+			configs: model.ChannelConfigs{sessionChatGuardConfigKey: "true"},
 			want:    false,
 		},
 		{
-			name:    "generic follow enabled string 1",
-			configs: model.ChannelConfigs{sessionGuardConfigKey: "1"},
-			config:  Config{EnableGenericFollow: true},
+			name:    "string 1",
+			configs: model.ChannelConfigs{sessionChatGuardConfigKey: "1"},
 			want:    false,
 		},
 		{
-			name:    "generic follow enabled number 1",
-			configs: model.ChannelConfigs{sessionGuardConfigKey: 1},
-			config:  Config{EnableGenericFollow: true},
+			name:    "number 1",
+			configs: model.ChannelConfigs{sessionChatGuardConfigKey: 1},
 			want:    false,
 		},
 		{
-			name:    "generic follow enabled nil value",
-			configs: model.ChannelConfigs{sessionGuardConfigKey: nil},
-			config:  Config{EnableGenericFollow: true},
+			name:    "nil value",
+			configs: model.ChannelConfigs{sessionChatGuardConfigKey: nil},
 			want:    false,
 		},
 	} {
@@ -80,130 +63,117 @@ func TestSessionGuardEnabled(t *testing.T) {
 			t.Parallel()
 
 			m := &meta.Meta{ChannelConfigs: tt.configs}
-			assert.Equal(t, tt.want, sessionGuardEnabled(m, tt.config))
+			assert.Equal(t, tt.want, sessionChatGuardEnabled(m))
 		})
 	}
 }
 
-func TestCheckSessionGuardResponses(t *testing.T) {
+func TestCheckSessionGuard(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
 		name       string
-		enabled    bool
-		config     Config
+		chatGuard  bool
 		mode       mode.Mode
 		body       string
 		headers    map[string]string
 		wantErrMsg string
 	}{
 		{
-			name:   "guard disabled",
-			config: Config{EnableGenericFollow: true},
-			mode:   mode.Responses,
-			body:   `{}`,
-		},
-		{
-			name:       "guard forced by generic follow disabled",
+			name:       "responses missing prompt_cache_key",
 			mode:       mode.Responses,
 			body:       `{}`,
 			wantErrMsg: "缺失 prompt_cache_key",
 		},
 		{
-			name:       "guard enabled missing prompt_cache_key",
-			enabled:    true,
+			name:       "responses missing prompt_cache_key field",
 			mode:       mode.Responses,
 			body:       `{"model":"gpt-5"}`,
 			wantErrMsg: "缺失 prompt_cache_key",
 		},
 		{
-			name:       "guard enabled empty prompt_cache_key",
-			enabled:    true,
+			name:       "responses empty prompt_cache_key",
 			mode:       mode.Responses,
 			body:       `{"prompt_cache_key":""}`,
 			wantErrMsg: "缺失 prompt_cache_key",
 		},
 		{
-			name:       "guard enabled null prompt_cache_key",
-			enabled:    true,
+			name:       "responses null prompt_cache_key",
 			mode:       mode.Responses,
 			body:       `{"prompt_cache_key":null}`,
 			wantErrMsg: "缺失 prompt_cache_key",
 		},
 		{
-			name:    "guard enabled valid prompt_cache_key",
-			enabled: true,
-			mode:    mode.Responses,
-			body:    `{"prompt_cache_key":"cache-key"}`,
+			name: "responses valid prompt_cache_key",
+			mode: mode.Responses,
+			body: `{"prompt_cache_key":"cache-key"}`,
 		},
 		{
 			name:       "anthropic missing metadata.user_id",
-			enabled:    true,
 			mode:       mode.Anthropic,
 			body:       `{"model":"claude"}`,
 			wantErrMsg: "缺失 metadata.user_id",
 		},
 		{
 			name:       "anthropic empty metadata",
-			enabled:    true,
 			mode:       mode.Anthropic,
 			body:       `{"metadata":{}}`,
 			wantErrMsg: "缺失 metadata.user_id",
 		},
 		{
 			name:       "anthropic empty metadata.user_id",
-			enabled:    true,
 			mode:       mode.Anthropic,
 			body:       `{"metadata":{"user_id":""}}`,
 			wantErrMsg: "缺失 metadata.user_id",
 		},
 		{
 			name:       "anthropic null metadata",
-			enabled:    true,
 			mode:       mode.Anthropic,
 			body:       `{"metadata":null}`,
 			wantErrMsg: "缺失 metadata.user_id",
 		},
 		{
 			name:       "anthropic null metadata.user_id",
-			enabled:    true,
 			mode:       mode.Anthropic,
 			body:       `{"metadata":{"user_id":null}}`,
 			wantErrMsg: "缺失 metadata.user_id",
 		},
 		{
-			name:    "anthropic valid metadata.user_id",
-			enabled: true,
-			mode:    mode.Anthropic,
-			body:    `{"metadata":{"user_id":"user-1"}}`,
+			name: "anthropic valid metadata.user_id",
+			mode: mode.Anthropic,
+			body: `{"metadata":{"user_id":"user-1"}}`,
+		},
+		{
+			name: "chat completions chat guard not configured",
+			mode: mode.ChatCompletions,
+			body: `{}`,
 		},
 		{
 			name:       "chat completions missing session id",
-			enabled:    true,
+			chatGuard:  true,
 			mode:       mode.ChatCompletions,
 			body:       `{}`,
 			wantErrMsg: "缺失 session-id",
 		},
 		{
 			name:       "chat completions empty session id",
-			enabled:    true,
+			chatGuard:  true,
 			mode:       mode.ChatCompletions,
 			body:       `{}`,
 			headers:    map[string]string{"x-session-id": ""},
 			wantErrMsg: "缺失 session-id",
 		},
 		{
-			name:    "chat completions valid session id",
-			enabled: true,
-			mode:    mode.ChatCompletions,
-			body:    `{}`,
-			headers: map[string]string{"session_id": "session-1"},
+			name:      "chat completions valid session id",
+			chatGuard: true,
+			mode:      mode.ChatCompletions,
+			body:      `{}`,
+			headers:   map[string]string{"session_id": "session-1"},
 		},
 		{
-			name:    "guard enabled unsupported mode",
-			enabled: true,
-			mode:    mode.Gemini,
-			body:    `{}`,
+			name: "unsupported mode",
+			mode: mode.Gemini,
+			body: `{}`,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -220,15 +190,13 @@ func TestCheckSessionGuardResponses(t *testing.T) {
 			}
 			m := &meta.Meta{
 				Mode:           tt.mode,
-				ChannelConfigs: model.ChannelConfigs{sessionGuardConfigKey: tt.enabled},
+				ChannelConfigs: model.ChannelConfigs{},
+			}
+			if tt.chatGuard {
+				m.ChannelConfigs[sessionChatGuardConfigKey] = true
 			}
 
-			config := tt.config
-			if tt.enabled {
-				config.EnableGenericFollow = true
-			}
-
-			err := checkSessionGuard(m, req, config)
+			err := checkSessionGuard(m, req)
 			if tt.wantErrMsg == "" {
 				require.NoError(t, err)
 				return
