@@ -50,6 +50,7 @@ func TestCheckSessionGuardResponses(t *testing.T) {
 		enabled    bool
 		mode       mode.Mode
 		body       string
+		headers    map[string]string
 		wantErrMsg string
 	}{
 		{
@@ -126,9 +127,31 @@ func TestCheckSessionGuardResponses(t *testing.T) {
 			body:    `{"metadata":{"user_id":"user-1"}}`,
 		},
 		{
-			name:    "guard enabled non responses mode",
+			name:       "chat completions missing session id",
+			enabled:    true,
+			mode:       mode.ChatCompletions,
+			body:       `{}`,
+			wantErrMsg: "缺失 session-id",
+		},
+		{
+			name:       "chat completions empty session id",
+			enabled:    true,
+			mode:       mode.ChatCompletions,
+			body:       `{}`,
+			headers:    map[string]string{"x-session-id": ""},
+			wantErrMsg: "缺失 session-id",
+		},
+		{
+			name:    "chat completions valid session id",
 			enabled: true,
 			mode:    mode.ChatCompletions,
+			body:    `{}`,
+			headers: map[string]string{"session_id": "session-1"},
+		},
+		{
+			name:    "guard enabled unsupported mode",
+			enabled: true,
+			mode:    mode.Gemini,
 			body:    `{}`,
 		},
 	} {
@@ -141,6 +164,9 @@ func TestCheckSessionGuardResponses(t *testing.T) {
 				"/v1/responses",
 				strings.NewReader(tt.body),
 			)
+			for name, value := range tt.headers {
+				req.Header.Set(name, value)
+			}
 			m := &meta.Meta{
 				Mode:           tt.mode,
 				ChannelConfigs: model.ChannelConfigs{sessionGuardConfigKey: tt.enabled},

@@ -3,6 +3,7 @@ package cachefollow
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/labring/aiproxy/core/common"
 	"github.com/labring/aiproxy/core/relay/adaptor"
@@ -33,7 +34,6 @@ func sessionGuardEnabled(m *meta.Meta) bool {
 }
 
 // checkSessionGuard 是 session guard 的检查入口.
-// TODO: 后续实现针对 chat.completions 的会话保持信息检查.
 func checkSessionGuard(m *meta.Meta, req *http.Request) error {
 	if !sessionGuardEnabled(m) {
 		return nil
@@ -44,6 +44,8 @@ func checkSessionGuard(m *meta.Meta, req *http.Request) error {
 		return checkResponsesSessionGuard(req)
 	case mode.Anthropic:
 		return checkAnthropicSessionGuard(req)
+	case mode.ChatCompletions:
+		return checkChatCompletionsSessionGuard(req)
 	default:
 		return nil
 	}
@@ -77,6 +79,21 @@ func checkAnthropicSessionGuard(req *http.Request) error {
 	}
 
 	return nil
+}
+
+// checkChatCompletionsSessionGuard 检查 chat completions 请求是否携带了非空的会话 header.
+func checkChatCompletionsSessionGuard(req *http.Request) error {
+	if req != nil {
+		for _, name := range sessionAffinitySourceHeaders {
+			for _, value := range req.Header.Values(name) {
+				if strings.TrimSpace(value) != "" {
+					return nil
+				}
+			}
+		}
+	}
+
+	return errors.New("缺失 session-id")
 }
 
 // ConvertRequest 在构造上游请求前执行 session guard 检查.
