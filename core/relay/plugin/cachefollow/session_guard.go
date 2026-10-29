@@ -49,8 +49,9 @@ func checkSessionGuard(m *meta.Meta, req *http.Request, config Config) error {
 		return checkResponsesSessionGuard(req)
 	case mode.Anthropic:
 		return checkAnthropicSessionGuard(req)
-	case mode.ChatCompletions:
-		return checkChatCompletionsSessionGuard(req)
+		// 暂时只针对 response 和 anthropic 两类消息进行处理
+	//case mode.ChatCompletions:
+	//	return checkChatCompletionsSessionGuard(req)
 	default:
 		return nil
 	}
