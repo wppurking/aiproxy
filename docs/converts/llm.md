@@ -50,6 +50,18 @@
 - 反向只在“响应侧”存在：Chat 客户端请求 Responses 上游时，响应会转回 Chat；Claude/Gemini 同理。
 - `Anthropic` 请求可以被转到 OpenAI Chat、OpenAI Responses、Anthropic Messages、Gemini；`Responses` 请求只能到 OpenAI Responses。
 
+### 为什么 Responses 客户端不能转 Chat / Claude / Gemini 上游
+
+1. `mode.Responses` 在上游适配器层只被 OpenAI 兼容适配器接受；`anthropic.Adaptor.SupportMode`（`relay/adaptor/anthropic/adaptor.go:37-43`）与 `gemini.Adaptor.SupportMode`（`relay/adaptor/gemini/adaptor.go:33-61`）都不包含 `mode.Responses`。渠道选择在 `controller/relay-channel.go:436-452` 会过滤掉不支持该 mode 的渠道，所以 `/v1/responses` 不会命中 Anthropic / Gemini 渠道。
+2. 对 OpenAI 兼容渠道，`mode.Responses` 的 `ConvertRequest` 是 `ConvertResponseRequest`（`relay/adaptor/openai/response.go:25-68`），只重写 model、归一化 `system` role，不做协议转换；`GetRequestURL` 固定为 `/responses`（`relay/adaptor/openai/adaptor.go:89-97`）。上游没有 `/responses` 就直接报错。
+3. 现有的 `ConvertResponsesToChatCompletionResponse` / `ConvertResponsesToClaudeResponse` / `ConvertResponsesToGeminiResponse` 都是“客户端是 Chat/Claude/Gemini、上游是 Responses”的响应侧转换，不是反方向。
+4. 要支持反方向，至少需要新增：
+   - Responses 请求 → Chat/Claude/Gemini 请求（`input` items、`instructions`、`tools`、`text.format`、`reasoning`、`max_output_tokens` 等）。
+   - Chat/Claude/Gemini 的响应/SSE → Responses 的响应/SSE 事件（`output` items、`response.created` / `in_progress` / `completed` 等）。
+   - 明确 Responses 独有能力的丢弃策略：`store`、`previous_response_id`、`conversation`、`background`、`include`、内置工具、encrypted reasoning 等。
+
+另外，`ModelConfig.Type` 只参与请求模式与模型类型的匹配，不会因为模型类型写成 `Anthropic` / `Gemini` 就把 Responses 请求转成对应协议；最终上游协议由渠道类型和 adaptor 决定。
+
 ### 转换实现索引
 
 注意：`openai/claude.go` 是“Claude 请求 → OpenAI 请求”，而 `anthropic/openai.go` 是“OpenAI Chat 请求 → Claude 请求”，文件名对应的是所在 adaptor / 主要目标，不是源协议。
